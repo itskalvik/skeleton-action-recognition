@@ -57,6 +57,7 @@ class GPool(tf.keras.layers.Layer):
 
         # get indices rows and cols
         indices = tf.squeeze(indices, axis=-1)
+        A = tf.matmul(A, A) # 2nd graph power        
         A = tf.transpose(A, perm=[0, 2, 3, 1])
         A = tf.gather(A, indices, batch_dims=1)
         A = tf.gather(A, indices, axis=-2, batch_dims=1)

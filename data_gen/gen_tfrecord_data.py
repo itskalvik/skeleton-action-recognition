@@ -5,6 +5,7 @@ import numpy as np
 from tqdm import tqdm
 import tensorflow as tf
 from pathlib import Path
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
 def _bytes_feature(value):
   """Returns a bytes_list from a string / byte."""
@@ -52,7 +53,7 @@ def gen_tfrecord_data(num_shards, label_path, data_path, dest_folder, shuffle):
         return -1
 
     print("Data shape:", data.shape)
-    if shuffle:
+    if 'True' in shuffle:
         p = np.random.permutation(len(labels))
         labels = labels[p]
         data = data[p]
@@ -61,12 +62,14 @@ def gen_tfrecord_data(num_shards, label_path, data_path, dest_folder, shuffle):
     if not (dest_folder.exists()):
         os.mkdir(dest_folder)
 
-    step = len(labels)//num_shards
-    for shard in tqdm(range(num_shards)):
-        tfrecord_data_path = os.path.join(dest_folder, data_path.name.split(".")[0]+"-"+str(shard)+".tfrecord")
-        with tf.io.TFRecordWriter(tfrecord_data_path) as writer:
-            for i in range(shard*step, (shard*step)+step if shard < num_shards-1 else len(labels)):
-                writer.write(serialize_example(data[i], labels[i]))
+    tfrecord_data_path = os.path.join(dest_folder, data_path.name.split(".")[0]+"-{}.tfrecord")
+    shard = 0
+    writer = None
+    for i in tqdm(range(len(labels))):
+        if i % (len(labels)//num_shards) == 0:
+            writer = tf.io.TFRecordWriter(tfrecord_data_path.format(shard))
+            shard += 1
+        writer.write(serialize_example(data[i], labels[i]))
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='NTU-RGB-D Data TFRecord Converter')

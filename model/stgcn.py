@@ -57,7 +57,7 @@ class GPool(tf.keras.layers.Layer):
 
         # get indices rows and cols
         indices = tf.squeeze(indices, axis=-1)
-        A = tf.matmul(A, A) # 2nd graph power        
+        A = tf.matmul(A, A) # 2nd graph power
         A = tf.transpose(A, perm=[0, 2, 3, 1])
         A = tf.gather(A, indices, batch_dims=1)
         A = tf.gather(A, indices, axis=-2, batch_dims=1)
@@ -106,6 +106,30 @@ class SGCN(tf.keras.Model):
 
         x = tf.reshape(x, [N, self.kernel_size, C//self.kernel_size, T, V])
         x = tf.einsum('nkctv,nkvw->nctw', x, A)
+        return x, A
+
+
+"""Applies a convolutional layer on the adjacency matrix
+    Args:
+        filters (int): Number of channels produced by the convolution
+        activation (activation function/name, optional): activation function to use
+"""
+class AdjConv(tf.keras.Model):
+    def __init__(self, filters, activation='relu'):
+        super().__init__()
+        self.conv = tf.keras.layers.Conv2D(filters,
+                                           kernel_size=1,
+                                           padding='same',
+                                           kernel_initializer=INITIALIZER,
+                                           data_format='channels_first',
+                                           kernel_regularizer=REGULARIZER)
+       self.bn    = tf.keras.layers.BatchNormalization(axis=1)
+       self.act   = tf.keras.layers.Activation(activation)
+
+    def call(self, x, A, training):
+        x = self.conv(x)
+        x = self.bn(x)
+        x = self.act(x)
         return x, A
 
 
@@ -202,13 +226,13 @@ class Model(tf.keras.Model):
         self.STGCN_layers.append(STGCN(64))
         self.STGCN_layers.append(STGCN(64))
         self.STGCN_layers.append(STGCN(128, stride=2, downsample=True))
-        self.STGCN_layers.append(GPool(keeprate=0.8))
-        self.STGCN_layers.append(STGCN(128))
-        self.STGCN_layers.append(STGCN(128))
-        self.STGCN_layers.append(STGCN(256, stride=2, downsample=True))
-        self.STGCN_layers.append(GPool(keeprate=0.8))
-        self.STGCN_layers.append(STGCN(256))
-        self.STGCN_layers.append(STGCN(256))
+        self.STGCN_layers.append(AdjConv(16))
+        self.STGCN_layers.append(STGCN(128, kernel_size=[9, 16]))
+        self.STGCN_layers.append(STGCN(128, kernel_size=[9, 16]))
+        self.STGCN_layers.append(STGCN(256, stride=2, downsample=True, kernel_size=[9, 16]))
+        self.STGCN_layers.append(AdjConv(32))
+        self.STGCN_layers.append(STGCN(256, kernel_size=[9, 32]))
+        self.STGCN_layers.append(STGCN(256, kernel_size=[9, 32]))
 
         self.pool = tf.keras.layers.GlobalAveragePooling2D(data_format='channels_first')
 

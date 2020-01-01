@@ -123,8 +123,8 @@ class AdjConv(tf.keras.Model):
                                            kernel_initializer=INITIALIZER,
                                            data_format='channels_first',
                                            kernel_regularizer=REGULARIZER)
-       self.bn    = tf.keras.layers.BatchNormalization(axis=1)
-       self.act   = tf.keras.layers.Activation(activation)
+        self.bn    = tf.keras.layers.BatchNormalization(axis=1)
+        self.act   = tf.keras.layers.Activation(activation)
 
     def call(self, x, A, training):
         x = self.conv(x)

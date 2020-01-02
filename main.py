@@ -30,6 +30,8 @@ def get_parser():
     parser.add_argument(
         '--save-freq', type=int, default=10, help='periodicity of saving model weights')
     parser.add_argument(
+        '--freeze-graph-until', type=int, default=10, help='adjacency matrices will be trained only after this epoch')
+    parser.add_argument(
         '--checkpoint-path',
         default="checkpoints/STGCN",
         help='folder to store model weights')
@@ -129,19 +131,22 @@ Args:
   labels      : one hot encoded labels
 '''
 @tf.function
-def train_step(features, labels):
-  def step_fn(features, labels):
+def train_step(features, labels, train_incidence):
+  def step_fn(features, labels, train_incidence):
     with tf.GradientTape() as tape:
       logits = model(features, training=True)
       cross_entropy = tf.nn.softmax_cross_entropy_with_logits(logits=logits,
                                                               labels=labels)
       loss = tf.reduce_sum(cross_entropy) * (1.0 / global_batch_size)
+
+    trainable_variables = [variable for variable in model.trainable_variables if not "adjacency_matrix" in variable.name]
+    trainable_variables = model.trainable_variables if train_incidence else trainable_variables
     grads = tape.gradient(loss, model.trainable_variables)
     optimizer.apply_gradients(list(zip(grads, model.trainable_variables)))
     train_acc(labels, logits)
     train_acc_top_5(labels, logits)
     cross_entropy_loss(loss)
-  strategy.experimental_run_v2(step_fn, args=(features, labels,))
+  strategy.experimental_run_v2(step_fn, args=(features, labels, train_incidence))
 
 
 if __name__ == "__main__":
@@ -162,6 +167,7 @@ if __name__ == "__main__":
     strategy        = tf.distribute.MirroredStrategy(arg.gpus)
     global_batch_size = arg.batch_size*strategy.num_replicas_in_sync
     arg.gpus        = strategy.num_replicas_in_sync
+    freeze_graph_until = arg.freeze_graph_until
 
     #copy hyperparameters and model definition to log folder
     save_arg(arg)
@@ -222,7 +228,7 @@ if __name__ == "__main__":
     # graph training is True on purpose, allows tensorflow to get all the
     # variables, which is required for the first call of @tf.function function
     tf.summary.trace_on(graph=True)
-    train_step(features, labels)
+    train_step(features, labels, True)
     with summary_writer.as_default():
       tf.summary.trace_export(name="training_trace",step=0)
     tf.summary.trace_off()
@@ -241,7 +247,7 @@ if __name__ == "__main__":
         print("Training: ")
         with strategy.scope():
             for features, labels in tqdm(train_data):
-                train_step(features, labels)
+                train_step(features, labels, True if epoch > freeze_graph_until else False)
                 with summary_writer.as_default():
                     tf.summary.scalar("cross_entropy_loss",
                                       cross_entropy_loss.result(),

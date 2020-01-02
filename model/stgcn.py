@@ -109,28 +109,33 @@ class SGCN(tf.keras.Model):
         return x, A
 
 
-"""Applies a convolutional layer on the adjacency matrix
-    Args:
-        filters (int): Number of channels produced by the convolution
-        activation (activation function/name, optional): activation function to use
-"""
-class AdjConv(tf.keras.Model):
-    def __init__(self, filters, activation='relu'):
+class SGTACN(tf.keras.Model):
+    def __init__(self, filters, adjacency_matrix, temporal_dim, kernel_size=3):
         super().__init__()
-        self.conv = tf.keras.layers.Conv2D(filters,
+        self.kernel_size = kernel_size
+        self.conv = tf.keras.layers.Conv2D(filters*kernel_size,
                                            kernel_size=1,
                                            padding='same',
                                            kernel_initializer=INITIALIZER,
                                            data_format='channels_first',
                                            kernel_regularizer=REGULARIZER)
-        self.bn    = tf.keras.layers.BatchNormalization(axis=1)
-        self.act   = tf.keras.layers.Activation(activation)
 
-    def call(self, x, A, training):
-        A = self.conv(A)
-        A = self.bn(A, training=training)
-        A = self.act(A)
-        return x, A
+        self.A = tf.Variable(initial_value=tf.ones((1, temporal_dim, 1, 1))*tf.expand_dims(adjacency_matrix, axis=1),
+                             trainable=True,
+                             name='adjacency_matrix')
+
+    # N, C, T, V
+    def call(self, x, training):
+        x = self.conv(x)
+
+        N = tf.shape(x)[0]
+        C = tf.shape(x)[1]
+        T = tf.shape(x)[2]
+        V = tf.shape(x)[3]
+
+        x = tf.reshape(x, [N, self.kernel_size, C//self.kernel_size, T, V])
+        x = tf.einsum('nkctv,ktvw->nctw', x, self.A)
+        return x
 
 
 """Applies a spatial temporal graph convolution over an input graph sequence.
@@ -154,10 +159,10 @@ class AdjConv(tf.keras.Model):
             :math:`V` is the number of graph nodes.
 """
 class STGCN(tf.keras.Model):
-    def __init__(self, filters, kernel_size=[9, 3], stride=1, activation='relu',
-                 residual=True, downsample=False):
+    def __init__(self, filters, adjacency_matrix, temporal_dim, kernel_size=[9, 3],
+                 stride=1, activation='relu', residual=True, downsample=False):
         super().__init__()
-        self.sgcn = SGCN(filters, kernel_size=kernel_size[1])
+        self.sgcn = SGTACN(filters, adjacency_matrix, temporal_dim, kernel_size=kernel_size[1])
         self.tgcn = tf.keras.Sequential()
         self.tgcn.add(tf.keras.layers.BatchNormalization(axis=1))
         self.tgcn.add(tf.keras.layers.Activation(activation))
@@ -187,13 +192,13 @@ class STGCN(tf.keras.Model):
                                                         kernel_regularizer=REGULARIZER))
             self.residual.add(tf.keras.layers.BatchNormalization(axis=1))
 
-    def call(self, x, A, training):
+    def call(self, x, training):
         res = self.residual(x, training=training)
-        x, A = self.sgcn(x, A, training=training)
+        x = self.sgcn(x, training=training)
         x = self.tgcn(x, training=training)
         x += res
         x = self.act(x)
-        return x, A
+        return x
 
 
 """Spatial temporal graph convolutional networks.
@@ -212,33 +217,21 @@ class Model(tf.keras.Model):
         super().__init__()
 
         graph = Graph()
-        self.A = tf.Variable(graph.A,
-                             dtype=tf.float32,
-                             trainable=False,
-                             name='adjacency_matrix')
+        A = graph.A.astype(np.float32)
 
         self.data_bn = tf.keras.layers.BatchNormalization(axis=1)
 
         self.STGCN_layers = []
-        self.STGCN_layers.append(STGCN(64, residual=False))
-        self.STGCN_layers.append(AdjConv(3))
-        self.STGCN_layers.append(STGCN(64))
-        self.STGCN_layers.append(AdjConv(3))
-        self.STGCN_layers.append(STGCN(64))
-        self.STGCN_layers.append(AdjConv(3))
-        self.STGCN_layers.append(STGCN(64))
-        self.STGCN_layers.append(AdjConv(3))
-        self.STGCN_layers.append(STGCN(128, stride=2, downsample=True))
-        self.STGCN_layers.append(AdjConv(3))
-        self.STGCN_layers.append(STGCN(128))
-        self.STGCN_layers.append(AdjConv(3))
-        self.STGCN_layers.append(STGCN(128))
-        self.STGCN_layers.append(AdjConv(3))
-        self.STGCN_layers.append(STGCN(256, stride=2, downsample=True))
-        self.STGCN_layers.append(AdjConv(3))
-        self.STGCN_layers.append(STGCN(256))
-        self.STGCN_layers.append(AdjConv(3))
-        self.STGCN_layers.append(STGCN(256))
+        self.STGCN_layers.append(STGCN(64,  A, 300, residual=False))
+        self.STGCN_layers.append(STGCN(64,  A, 300))
+        self.STGCN_layers.append(STGCN(64,  A, 300))
+        self.STGCN_layers.append(STGCN(64,  A, 300))
+        self.STGCN_layers.append(STGCN(128, A, 300, stride=2, downsample=True))
+        self.STGCN_layers.append(STGCN(128, A, 150))
+        self.STGCN_layers.append(STGCN(128, A, 150))
+        self.STGCN_layers.append(STGCN(256, A, 150, stride=2, downsample=True))
+        self.STGCN_layers.append(STGCN(256, A, 75))
+        self.STGCN_layers.append(STGCN(256, A, 75))
 
         self.pool = tf.keras.layers.GlobalAveragePooling2D(data_format='channels_first')
 
@@ -263,9 +256,8 @@ class Model(tf.keras.Model):
         x = tf.transpose(x, perm=[0, 1, 3, 4, 2])
         x = tf.reshape(x, [N * M, C, T, V])
 
-        A = tf.ones((N*M, 1, 1, 1))*self.A
         for layer in self.STGCN_layers:
-            x, A = layer(x, A, training=training)
+            x = layer(x, training=training)
 
         # N*M,C,T,V
         x = self.pool(x)

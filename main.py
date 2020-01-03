@@ -1,4 +1,4 @@
-from model.stgcn import Model
+from model.stagcn import Model
 import tensorflow as tf
 from tqdm import tqdm
 import argparse
@@ -131,8 +131,8 @@ Args:
   labels      : one hot encoded labels
 '''
 @tf.function
-def train_step(features, labels, train_incidence):
-  def step_fn(features, labels, train_incidence):
+def train_step(features, labels, train_adj):
+  def step_fn(features, labels, train_adj):
     with tf.GradientTape() as tape:
       logits = model(features, training=True)
       cross_entropy = tf.nn.softmax_cross_entropy_with_logits(logits=logits,
@@ -140,33 +140,33 @@ def train_step(features, labels, train_incidence):
       loss = tf.reduce_sum(cross_entropy) * (1.0 / global_batch_size)
 
     trainable_variables = [variable for variable in model.trainable_variables if not "adjacency_matrix" in variable.name]
-    trainable_variables = model.trainable_variables if train_incidence else trainable_variables
-    grads = tape.gradient(loss, model.trainable_variables)
-    optimizer.apply_gradients(list(zip(grads, model.trainable_variables)))
+    trainable_variables = model.trainable_variables if train_adj else trainable_variables
+    grads = tape.gradient(loss, trainable_variables)
+    optimizer.apply_gradients(list(zip(grads, trainable_variables)))
     train_acc(labels, logits)
     train_acc_top_5(labels, logits)
     cross_entropy_loss(loss)
-  strategy.experimental_run_v2(step_fn, args=(features, labels, train_incidence))
+  strategy.experimental_run_v2(step_fn, args=(features, labels, train_adj))
 
 
 if __name__ == "__main__":
     parser = get_parser()
     arg = parser.parse_args()
 
-    base_lr         = arg.base_lr
-    num_classes     = arg.num_classes
-    epochs          = arg.num_epochs
-    checkpoint_path = arg.checkpoint_path
-    log_dir         = arg.log_dir
-    train_data_path = arg.train_data_path
-    test_data_path  = arg.test_data_path
-    save_freq       = arg.save_freq
-    steps           = arg.steps
-    batch_size      = arg.batch_size
-    gpus            = arg.gpus
-    strategy        = tf.distribute.MirroredStrategy(arg.gpus)
-    global_batch_size = arg.batch_size*strategy.num_replicas_in_sync
-    arg.gpus        = strategy.num_replicas_in_sync
+    base_lr            = arg.base_lr
+    num_classes        = arg.num_classes
+    epochs             = arg.num_epochs
+    checkpoint_path    = arg.checkpoint_path
+    log_dir            = arg.log_dir
+    train_data_path    = arg.train_data_path
+    test_data_path     = arg.test_data_path
+    save_freq          = arg.save_freq
+    steps              = arg.steps
+    batch_size         = arg.batch_size
+    gpus               = arg.gpus
+    strategy           = tf.distribute.MirroredStrategy(arg.gpus)
+    global_batch_size  = arg.batch_size*strategy.num_replicas_in_sync
+    arg.gpus           = strategy.num_replicas_in_sync
     freeze_graph_until = arg.freeze_graph_until
 
     #copy hyperparameters and model definition to log folder

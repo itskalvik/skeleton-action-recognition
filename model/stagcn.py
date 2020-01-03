@@ -19,14 +19,13 @@ class SGCN(tf.keras.layers.Layer):
         self.A = tf.Variable(initial_value=adjacency_matrix,
                              trainable=True,
                              name='adjacency_matrix')
-        self.kernel_size = tf.shape(self.A)[0]
+        self.kernel_size = int(tf.shape(self.A)[0])
         self.conv = tf.keras.layers.Conv2D(filters*self.kernel_size,
                                            kernel_size=1,
                                            padding='same',
                                            kernel_initializer=INITIALIZER,
                                            kernel_regularizer=REGULARIZER,
                                            data_format='channels_first')
-
 
     def call(self, x, training):
         x = self.conv(x)

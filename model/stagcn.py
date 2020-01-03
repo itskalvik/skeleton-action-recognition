@@ -39,6 +39,35 @@ class SGCN(tf.keras.layers.Layer):
         x = tf.einsum('nkctv,kvw->nctw', x, self.A)
         return x
 
+class SGTACN(tf.keras.layers.Layer):
+    def __init__(self, filters, adjacency_matrix):
+        super().__init__()
+        self.A = tf.Variable(initial_value=adjacency_matrix,
+                             trainable=True,
+                             name='adjacency_matrix')
+        self.kernel_size = int(tf.shape(self.A)[0])
+        self.conv = tf.keras.layers.Conv2D(filters*self.kernel_size,
+                                           kernel_size=1,
+                                           padding='same',
+                                           kernel_initializer=INITIALIZER,
+                                           kernel_regularizer=REGULARIZER,
+                                           data_format='channels_first')
+
+    def build(self, input_shape):
+        self.A = tf.ones((1, input_shape[-2], 1, 1))*tf.expand_dims(self.A, axis=1)
+
+    def call(self, x, training):
+        x = self.conv(x)
+
+        N = tf.shape(x)[0]
+        C = tf.shape(x)[1]
+        T = tf.shape(x)[2]
+        V = tf.shape(x)[3]
+
+        x = tf.reshape(x, [N, self.kernel_size, C//self.kernel_size, T, V])
+        x = tf.einsum('nkctv,ktvw->nctw', x, self.A)
+        return x
+
 
 """Applies a spatial temporal graph convolution over an input graph sequence.
     Args:
@@ -67,7 +96,7 @@ class STGCN(tf.keras.layers.Layer):
         self.activation  = activation
         self.residual    = residual
 
-        self.sgcn = SGCN(self.filters, adjacency_matrix)
+        self.sgcn = SGTACN(self.filters, adjacency_matrix)
 
         self.tgcn = tf.keras.Sequential()
         self.tgcn.add(tf.keras.layers.BatchNormalization(axis=1))

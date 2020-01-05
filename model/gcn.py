@@ -25,7 +25,7 @@ INITIALIZER = tf.keras.initializers.VarianceScaling(scale=2.,
             T_{in}/T_{out} is a length of input/output sequence,
             V is the number of graph nodes.
 """
-class GraphConv(tf.keras.layers.Layer):
+class GraphConvTD(tf.keras.layers.Layer):
     def __init__(self, filters, kernel_size=3, einsum=None):
         super().__init__()
         self.kernel_size = kernel_size
@@ -37,7 +37,6 @@ class GraphConv(tf.keras.layers.Layer):
 
         self.conv = tf.keras.layers.Conv2D(filters*self.kernel_size,
                                            kernel_size=1,
-                                           padding='same',
                                            kernel_initializer=INITIALIZER,
                                            kernel_regularizer=REGULARIZER,
                                            data_format='channels_first')
@@ -52,6 +51,42 @@ class GraphConv(tf.keras.layers.Layer):
         V = tf.shape(x)[3]
 
         x = tf.reshape(x, [N, self.kernel_size, C//self.kernel_size, T, V])
+        x = tf.einsum(self.einsum, x, A)
+        return x, A
+
+"""Vanilla Graph Conv for graph data
+    Args:
+        filters (int): Number of channels produced by the convolution
+        kernel_size (tuple): Size of the temporal convolving kernel and graph
+                             convolving kernel
+        einsum (string, optional): einsum string used to apply adjacency matrix
+                                   after conv, used to override default behaviour
+    Shape:
+        - Input[0]: Input graph sequence in :(N, in_channels, V)
+        - Input[1]: Input graph adjacency matrix in :(K, V, V)
+        - Output[0]: Outpu graph sequence in :(N, out_channels, V)
+        - Output[1]: Graph adjacency matrix for output data in :(K, V, V)
+        where
+            N is a batch size,
+            K is the spatial kernel size
+            V is the number of graph nodes.
+"""
+class GraphConv(tf.keras.layers.Layer):
+    def __init__(self, filters, einsum=None):
+        super().__init__()
+        if einsum is not None:
+            self.einsum = einsum
+        else:
+            self.einsum = 'ncv,nvw->ncw'
+        self.conv = tf.keras.layers.Conv1D(filters,
+                                           kernel_size=1,
+                                           kernel_initializer=INITIALIZER,
+                                           kernel_regularizer=REGULARIZER,
+                                           data_format='channels_first')
+
+    # N, C, V
+    def call(self, x, A, training):
+        x = self.conv(x)
         x = tf.einsum(self.einsum, x, A)
         return x, A
 
@@ -88,7 +123,6 @@ class AdjGraphConv(tf.keras.layers.Layer):
 
         self.conv = tf.keras.layers.Conv2D(filters*self.kernel_size,
                                            kernel_size=1,
-                                           padding='same',
                                            kernel_initializer=INITIALIZER,
                                            kernel_regularizer=REGULARIZER,
                                            data_format='channels_first')

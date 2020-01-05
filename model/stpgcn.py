@@ -13,7 +13,7 @@ class ProjectionGraphConv(tf.keras.layers.Layer):
     def __init__(self, filters, vertices):
         super().__init__()
         self.vertices = vertices
-        self.graph_conv = GraphConv(filters, kernel_size=1, einsum='nkctv,nvw->ncw')
+        self.graph_conv = GraphConv(filters)
 
     def build(self, input_shape):
         self.centers  = self.add_weight("centers",
@@ -29,7 +29,7 @@ class ProjectionGraphConv(tf.keras.layers.Layer):
 
         x = tf.reshape(x, [N, C, -1, 1])
 
-        z = x-self.centers/tf.sigmoid(self.variance)
+        z = (x-self.centers)/tf.sigmoid(self.variance)
 
         q = tf.maximum(tf.reduce_sum(tf.square(z), axis=1), 1e-12)*(-1/2)
         q = tf.nn.softmax(q, axis=-1)
@@ -40,8 +40,7 @@ class ProjectionGraphConv(tf.keras.layers.Layer):
 
         A_proj = tf.matmul(z, z, transpose_a=True)
 
-        z, _ = self.graph_conv(tf.expand_dims(z, axis=-2), A_proj,
-                               training=training)
+        z, _ = self.graph_conv(z, A_proj, training=training)
         x = tf.matmul(q, tf.transpose(z, perm=[0, 2, 1]))
         x = tf.transpose(x, perm=[0, 2, 1])
         x = tf.reshape(x, [N, C, T, V])
@@ -65,7 +64,7 @@ class SpatioTemporalGraphConv(tf.keras.layers.Layer):
         self.activation  = activation
         self.residual    = residual
 
-        self.sgcn = GraphConv(filters, kernel_size=kernel_size[0])
+        self.sgcn = GraphConvTD(filters, kernel_size=kernel_size[0])
 
         self.tgcn = tf.keras.Sequential()
         self.tgcn.add(tf.keras.layers.BatchNormalization(axis=1))

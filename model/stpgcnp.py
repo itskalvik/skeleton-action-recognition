@@ -1,5 +1,5 @@
 from graph.ntu_rgb_d import Graph
-from model.gcn import GraphConvTD
+from model.gcn import *
 import tensorflow as tf
 import numpy as np
 
@@ -9,6 +9,44 @@ INITIALIZER = tf.keras.initializers.VarianceScaling(scale=2.,
                                                     distribution="truncated_normal")
 
 
+class ProjectionGraphPool(tf.keras.layers.Layer):
+    def __init__(self, vertices):
+        super().__init__()
+        self.vertices = vertices
+
+    def build(self, input_shape):
+        self.centers  = self.add_weight("centers",
+                                        shape=[1, int(input_shape[1]), 1, self.vertices])
+        self.variance = self.add_weight("variance",
+                                        shape=[1, int(input_shape[1]), 1, self.vertices])
+
+    def call(self, x, A, training):
+        N = tf.shape(x)[0]
+        C = tf.shape(x)[1]
+
+        x = tf.reshape(x, [N, C, -1, 1])
+
+        z = (x-self.centers)/tf.sigmoid(self.variance)
+
+        q = tf.maximum(tf.reduce_sum(tf.square(z), axis=1), 1e-12)*(-1/2)
+        q = tf.nn.softmax(q, axis=-1)
+
+        z = tf.reduce_sum(tf.expand_dims(q, axis=1)*z, axis=-2)
+        z /= tf.reduce_sum(q, axis=-2, keepdims=True)
+        z = tf.math.l2_normalize(z, axis=-1)
+
+        A = tf.matmul(z, z, transpose_a=True)
+        return z, A
+
+
+"""Applies a spatial temporal graph convolution over an input graph sequence.
+    Args:
+        filters (int): Number of channels produced by the convolution
+        kernel_size (tuple): Size of the temporal convolving kernel and graph convolving kernel
+        stride (int, optional): Stride of the temporal convolution. Default: 1
+        activation (activation function/name, optional): activation function to use
+        residual (bool, optional): If ``True``, applies a residual mechanism. Default: ``True``
+"""
 class SpatioTemporalGraphConv(tf.keras.layers.Layer):
     def __init__(self, filters, kernel_size=[3, 9], stride=1, activation='relu',
                  residual=True):
@@ -85,17 +123,18 @@ class Model(tf.keras.Model):
         self.STGCN_layers = []
         self.STGCN_layers.append(SpatioTemporalGraphConv(64, residual=False))
         self.STGCN_layers.append(SpatioTemporalGraphConv(64))
-        self.STGCN_layers.append(SpatioTemporalGraphConv(64))
-        self.STGCN_layers.append(SpatioTemporalGraphConv(64))
         self.STGCN_layers.append(SpatioTemporalGraphConv(128, stride=2))
-        self.STGCN_layers.append(SpatioTemporalGraphConv(128))
         self.STGCN_layers.append(SpatioTemporalGraphConv(128))
         self.STGCN_layers.append(SpatioTemporalGraphConv(256, stride=2))
         self.STGCN_layers.append(SpatioTemporalGraphConv(256))
+        self.STGCN_layers.append(SpatioTemporalGraphConv(256, stride=2))
         self.STGCN_layers.append(SpatioTemporalGraphConv(256))
+        self.STGCN_layers.append(ProjectionGraphPool(512))
+        self.STGCN_layers.append(GraphConv(256))
+        self.STGCN_layers.append(ProjectionGraphPool(256))
+        self.STGCN_layers.append(GraphConv(512))
 
-        self.pool = tf.keras.layers.GlobalAveragePooling2D(data_format='channels_first')
-
+        self.pool = tf.keras.layers.GlobalAveragePooling1D(data_format='channels_first')
         self.logits = tf.keras.layers.Conv2D(num_classes,
                                              kernel_size=1,
                                              padding='same',
@@ -121,11 +160,10 @@ class Model(tf.keras.Model):
         for layer in self.STGCN_layers:
             x, A = layer(x, A, training=training)
 
-        # N*M,C,T,V
+        # N*M,C,V
         x = self.pool(x)
         x = tf.reshape(x, [N, M, -1, 1, 1])
         x = tf.reduce_mean(x, axis=1)
         x = self.logits(x)
         x = tf.reshape(x, [N, -1])
-
         return x

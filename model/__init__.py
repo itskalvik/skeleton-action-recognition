@@ -1,2 +1,3 @@
+from . import *
 from . import stgcn
-from . import stagcn
+from . import stpgcn

@@ -1,4 +1,5 @@
 from graph.ntu_rgb_d import Graph
+from model.gcn import *
 import tensorflow as tf
 import numpy as np
 
@@ -8,101 +9,69 @@ INITIALIZER = tf.keras.initializers.VarianceScaling(scale=2.,
                                                     distribution="truncated_normal")
 
 
-"""The basic module for applying a spatial graph convolution.
-    Args:
-        filters (int): Number of channels produced by the convolution
-        adjacency_matrix : KxNxN
-"""
-class SGCN(tf.keras.layers.Layer):
-    def __init__(self, filters, adjacency_matrix):
+class ProjectionGraphConv(tf.keras.layers.Layer):
+    def __init__(self, filters, vertices):
         super().__init__()
-        self.A = tf.Variable(initial_value=adjacency_matrix,
-                             trainable=True,
-                             name='adjacency_matrix')
-        self.kernel_size = int(tf.shape(self.A)[0])
-        self.conv = tf.keras.layers.Conv2D(filters*self.kernel_size,
-                                           kernel_size=1,
-                                           padding='same',
-                                           kernel_initializer=INITIALIZER,
-                                           kernel_regularizer=REGULARIZER,
-                                           data_format='channels_first')
-
-    def call(self, x, training):
-        x = self.conv(x)
-
-        N = tf.shape(x)[0]
-        C = tf.shape(x)[1]
-        T = tf.shape(x)[2]
-        V = tf.shape(x)[3]
-
-        x = tf.reshape(x, [N, self.kernel_size, C//self.kernel_size, T, V])
-        x = tf.einsum('nkctv,kvw->nctw', x, self.A)
-        return x
-
-class SGTACN(tf.keras.layers.Layer):
-    def __init__(self, filters, adjacency_matrix):
-        super().__init__()
-        self.A = tf.Variable(initial_value=adjacency_matrix,
-                             trainable=True,
-                             name='adjacency_matrix')
-        self.kernel_size = int(tf.shape(self.A)[0])
-        self.conv = tf.keras.layers.Conv2D(filters*self.kernel_size,
-                                           kernel_size=1,
-                                           padding='same',
-                                           kernel_initializer=INITIALIZER,
-                                           kernel_regularizer=REGULARIZER,
-                                           data_format='channels_first')
+        self.vertices = vertices
+        self.graph_conv = GraphConv(filters, kernel_size=1, einsum='nkctv,nvw->ncw')
 
     def build(self, input_shape):
-        self.A = tf.ones((1, input_shape[-2], 1, 1))*tf.expand_dims(self.A, axis=1)
+        self.centers  = self.add_weight("centers",
+                                        shape=[1, int(input_shape[1]), 1, self.vertices])
+        self.variance = self.add_weight("variance",
+                                        shape=[1, int(input_shape[1]), 1, self.vertices])
 
-    def call(self, x, training):
-        x = self.conv(x)
-
+    def call(self, x, A, training):
         N = tf.shape(x)[0]
         C = tf.shape(x)[1]
         T = tf.shape(x)[2]
         V = tf.shape(x)[3]
 
-        x = tf.reshape(x, [N, self.kernel_size, C//self.kernel_size, T, V])
-        x = tf.einsum('nkctv,ktvw->nctw', x, self.A)
-        return x
+        x = tf.reshape(x, [N, C, -1, 1])
+
+        z = x-self.centers/tf.sigmoid(self.variance)
+
+        q = tf.maximum(tf.reduce_sum(tf.square(z), axis=1), 1e-12)*(-1/2)
+        q = tf.nn.softmax(q, axis=-1)
+
+        z = tf.reduce_sum(tf.expand_dims(q, axis=1)*z, axis=-2)
+        z /= tf.reduce_sum(q, axis=-2, keepdims=True)
+        z = tf.math.l2_normalize(z, axis=-1)
+
+        A_proj = tf.matmul(z, z, transpose_a=True)
+
+        z, _ = self.graph_conv(tf.expand_dims(z, axis=-2), A_proj,
+                               training=training)
+        x = tf.matmul(q, tf.transpose(z, perm=[0, 2, 1]))
+        x = tf.transpose(x, perm=[0, 2, 1])
+        x = tf.reshape(x, [N, C, T, V])
+        return x, A
 
 
 """Applies a spatial temporal graph convolution over an input graph sequence.
     Args:
         filters (int): Number of channels produced by the convolution
-        adjacency_matrix (Tensor: KxVxV): adjacency matrix for GCN
-        kernel_size (int): Size of the temporal convolving kernel
+        kernel_size (tuple): Size of the temporal convolving kernel and graph convolving kernel
         stride (int, optional): Stride of the temporal convolution. Default: 1
         activation (activation function/name, optional): activation function to use
         residual (bool, optional): If ``True``, applies a residual mechanism. Default: ``True``
-    Shape:
-        - Input: Input graph sequence in :math:`(N, in_channels, T_{in}, V)` format
-        - Output: Outpu graph sequence in :math:`(N, out_channels, T_{out}, V)` format
-        where
-            :math:`N` is a batch size,
-            :math:`K` is the spatial kernel size, as :math:`K == kernel_size[1]`,
-            :math:`T_{in}/T_{out}` is a length of input/output sequence,
-            :math:`V` is the number of graph nodes.
 """
-class STGCN(tf.keras.layers.Layer):
-    def __init__(self, filters, adjacency_matrix, kernel_size=9, stride=1,
-                 activation='relu', residual=True):
+class SpatioTemporalGraphConv(tf.keras.layers.Layer):
+    def __init__(self, filters, kernel_size=[3, 9], stride=1, activation='relu',
+                 residual=True):
         super().__init__()
         self.filters     = filters
-        self.kernel_size = kernel_size
         self.stride      = stride
         self.activation  = activation
         self.residual    = residual
 
-        self.sgcn = SGTACN(self.filters, adjacency_matrix)
+        self.sgcn = GraphConv(filters, kernel_size=kernel_size[0])
 
         self.tgcn = tf.keras.Sequential()
         self.tgcn.add(tf.keras.layers.BatchNormalization(axis=1))
         self.tgcn.add(tf.keras.layers.Activation(self.activation))
         self.tgcn.add(tf.keras.layers.Conv2D(self.filters,
-                                             kernel_size=[self.kernel_size, 1],
+                                             kernel_size=[kernel_size[1], 1],
                                              strides=[self.stride, 1],
                                              padding='same',
                                              kernel_initializer=INITIALIZER,
@@ -128,13 +97,13 @@ class STGCN(tf.keras.layers.Layer):
                                                      data_format='channels_first'))
             self.residual.add(tf.keras.layers.BatchNormalization(axis=1))
 
-    def call(self, x, training):
+    def call(self, x, A, training):
         res = self.residual(x, training=training)
-        x = self.sgcn(x, training=training)
+        x, A = self.sgcn(x, A, training=training)
         x = self.tgcn(x, training=training)
         x += res
         x = self.act(x)
-        return x
+        return x, A
 
 
 """Spatial temporal graph convolutional networks.
@@ -153,28 +122,34 @@ class Model(tf.keras.Model):
         super().__init__()
 
         graph = Graph()
-        A = graph.A.astype(np.float32)
+        self.A = tf.Variable(graph.A,
+                             dtype=tf.float32,
+                             trainable=False,
+                             name='adjacency_matrix')
+
         self.data_bn = tf.keras.layers.BatchNormalization(axis=1)
 
         self.STGCN_layers = []
-        self.STGCN_layers.append(STGCN(64, A, residual=False))
-        self.STGCN_layers.append(STGCN(64, A))
-        self.STGCN_layers.append(STGCN(64, A))
-        self.STGCN_layers.append(STGCN(64, A))
-        self.STGCN_layers.append(STGCN(128, A, stride=2))
-        self.STGCN_layers.append(STGCN(128, A))
-        self.STGCN_layers.append(STGCN(128, A))
-        self.STGCN_layers.append(STGCN(256, A, stride=2))
-        self.STGCN_layers.append(STGCN(256, A))
-        self.STGCN_layers.append(STGCN(256, A))
+        self.STGCN_layers.append(SpatioTemporalGraphConv(64, residual=False))
+        self.STGCN_layers.append(ProjectionGraphConv(64, 32))
+        self.STGCN_layers.append(SpatioTemporalGraphConv(64))
+        self.STGCN_layers.append(SpatioTemporalGraphConv(64))
+        self.STGCN_layers.append(SpatioTemporalGraphConv(64))
+        self.STGCN_layers.append(SpatioTemporalGraphConv(128, stride=2))
+        self.STGCN_layers.append(SpatioTemporalGraphConv(128))
+        self.STGCN_layers.append(SpatioTemporalGraphConv(128))
+        self.STGCN_layers.append(SpatioTemporalGraphConv(256, stride=2))
+        self.STGCN_layers.append(SpatioTemporalGraphConv(256))
+        self.STGCN_layers.append(SpatioTemporalGraphConv(256))
 
         self.pool = tf.keras.layers.GlobalAveragePooling2D(data_format='channels_first')
+
         self.logits = tf.keras.layers.Conv2D(num_classes,
                                              kernel_size=1,
                                              padding='same',
                                              kernel_initializer=INITIALIZER,
-                                             kernel_regularizer=REGULARIZER,
-                                             data_format='channels_first')
+                                             data_format='channels_first',
+                                             kernel_regularizer=REGULARIZER)
 
     def call(self, x, training):
         N = tf.shape(x)[0]
@@ -190,8 +165,9 @@ class Model(tf.keras.Model):
         x = tf.transpose(x, perm=[0, 1, 3, 4, 2])
         x = tf.reshape(x, [N * M, C, T, V])
 
+        A = self.A
         for layer in self.STGCN_layers:
-            x = layer(x, training=training)
+            x, A = layer(x, A, training=training)
 
         # N*M,C,T,V
         x = self.pool(x)

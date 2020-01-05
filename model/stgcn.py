@@ -1,4 +1,5 @@
 from graph.ntu_rgb_d import Graph
+from model.gcn import GraphConv
 import tensorflow as tf
 import numpy as np
 
@@ -8,100 +9,45 @@ INITIALIZER = tf.keras.initializers.VarianceScaling(scale=2.,
                                                     distribution="truncated_normal")
 
 
-"""The basic module for applying a spatial graph convolution.
-    Args:
-        filters (int): Number of channels produced by the convolution
-        kernel_size (int): Size of the graph convolving kernel
-    Shape:
-        - Input[0]: Input graph sequence in :math:`(N, C, T, V)` format
-        - Input[1]: Input graph adjacency matrix in :math:`(K, V, V)` format
-        - Output[0]: Output graph sequence in :math:`(N, out_channels, T, V)` format
-        - Output[1]: Graph adjacency matrix for output data in :math:`(K, V, V)` format
-        where
-            :math:`N` is a batch size
-            :math:`K` is the spatial kernel size
-            :math:`T` is a length of the sequence
-            :math:`V` is the number of graph nodes
-            :math:`C` is the number of incoming channels
-"""
-class SGCN(tf.keras.Model):
-    def __init__(self, filters, kernel_size=3):
+class SpatioTemporalGraphConv(tf.keras.layers.Layer):
+    def __init__(self, filters, kernel_size=[3, 9], stride=1, activation='relu',
+                 residual=True):
         super().__init__()
-        self.kernel_size = kernel_size
-        self.conv = tf.keras.layers.Conv2D(filters*kernel_size,
-                                           kernel_size=1,
-                                           padding='same',
-                                           kernel_initializer=INITIALIZER,
-                                           data_format='channels_first',
-                                           kernel_regularizer=REGULARIZER)
+        self.filters     = filters
+        self.stride      = stride
+        self.activation  = activation
+        self.residual    = residual
 
-    # N, C, T, V
-    def call(self, x, A, training):
-        x = self.conv(x)
-
-        N = tf.shape(x)[0]
-        C = tf.shape(x)[1]
-        T = tf.shape(x)[2]
-        V = tf.shape(x)[3]
-
-        x = tf.reshape(x, [N, self.kernel_size, C//self.kernel_size, T, V])
-        x = tf.einsum('nkctv,kvw->nctw', x, A)
-        return x, A
-
-
-"""Applies a spatial temporal graph convolution over an input graph sequence.
-    Args:
-        filters (int): Number of channels produced by the convolution
-        kernel_size (tuple): Size of the temporal convolving kernel and graph convolving kernel
-        stride (int, optional): Stride of the temporal convolution. Default: 1
-        activation (activation function/name, optional): activation function to use
-        residual (bool, optional): If ``True``, applies a residual mechanism. Default: ``True``
-        downsample (bool, optional): If ``True``, applies a downsampling residual mechanism. Default: ``True``
-                                     the value is used only when residual is ``True``
-    Shape:
-        - Input[0]: Input graph sequence in :math:`(N, in_channels, T_{in}, V)` format
-        - Input[1]: Input graph adjacency matrix in :math:`(K, V, V)` format
-        - Output[0]: Outpu graph sequence in :math:`(N, out_channels, T_{out}, V)` format
-        - Output[1]: Graph adjacency matrix for output data in :math:`(K, V, V)` format
-        where
-            :math:`N` is a batch size,
-            :math:`K` is the spatial kernel size, as :math:`K == kernel_size[1]`,
-            :math:`T_{in}/T_{out}` is a length of input/output sequence,
-            :math:`V` is the number of graph nodes.
-"""
-class STGCN(tf.keras.Model):
-    def __init__(self, filters, kernel_size=[9, 3], stride=1, activation='relu',
-                 residual=True, downsample=False):
-        super().__init__()
-        self.sgcn = SGCN(filters, kernel_size=kernel_size[1])
+        self.sgcn = GraphConv(filters, kernel_size=kernel_size[0])
 
         self.tgcn = tf.keras.Sequential()
         self.tgcn.add(tf.keras.layers.BatchNormalization(axis=1))
-        self.tgcn.add(tf.keras.layers.Activation(activation))
-        self.tgcn.add(tf.keras.layers.Conv2D(filters,
-                                                kernel_size=[kernel_size[0], 1],
-                                                strides=[stride, 1],
-                                                padding='same',
-                                                kernel_initializer=INITIALIZER,
-                                                data_format='channels_first',
-                                                kernel_regularizer=REGULARIZER))
+        self.tgcn.add(tf.keras.layers.Activation(self.activation))
+        self.tgcn.add(tf.keras.layers.Conv2D(self.filters,
+                                             kernel_size=[kernel_size[1], 1],
+                                             strides=[self.stride, 1],
+                                             padding='same',
+                                             kernel_initializer=INITIALIZER,
+                                             kernel_regularizer=REGULARIZER,
+                                             data_format='channels_first'))
         self.tgcn.add(tf.keras.layers.BatchNormalization(axis=1))
 
-        self.act = tf.keras.layers.Activation(activation)
+        self.act = tf.keras.layers.Activation(self.activation)
 
-        if not residual:
+    def build(self, input_shape):
+        if not self.residual:
             self.residual = lambda x, training=False: 0
-        elif residual and stride == 1 and not downsample:
+        elif (input_shape[1]==self.filters) and (self.stride == 1):
             self.residual = lambda x, training=False: x
         else:
             self.residual = tf.keras.Sequential()
-            self.residual.add(tf.keras.layers.Conv2D(filters,
-                                                        kernel_size=[1, 1],
-                                                        strides=[stride, 1],
-                                                        padding='same',
-                                                        kernel_initializer=INITIALIZER,
-                                                        data_format='channels_first',
-                                                        kernel_regularizer=REGULARIZER))
+            self.residual.add(tf.keras.layers.Conv2D(self.filters,
+                                                     kernel_size=[1, 1],
+                                                     strides=[self.stride, 1],
+                                                     padding='same',
+                                                     kernel_initializer=INITIALIZER,
+                                                     kernel_regularizer=REGULARIZER,
+                                                     data_format='channels_first'))
             self.residual.add(tf.keras.layers.BatchNormalization(axis=1))
 
     def call(self, x, A, training):
@@ -137,16 +83,16 @@ class Model(tf.keras.Model):
         self.data_bn = tf.keras.layers.BatchNormalization(axis=1)
 
         self.STGCN_layers = []
-        self.STGCN_layers.append(STGCN(64, residual=False))
-        self.STGCN_layers.append(STGCN(64))
-        self.STGCN_layers.append(STGCN(64))
-        self.STGCN_layers.append(STGCN(64))
-        self.STGCN_layers.append(STGCN(128, stride=2, downsample=True))
-        self.STGCN_layers.append(STGCN(128))
-        self.STGCN_layers.append(STGCN(128))
-        self.STGCN_layers.append(STGCN(256, stride=2, downsample=True))
-        self.STGCN_layers.append(STGCN(256))
-        self.STGCN_layers.append(STGCN(256))
+        self.STGCN_layers.append(SpatioTemporalGraphConv(64, residual=False))
+        self.STGCN_layers.append(SpatioTemporalGraphConv(64))
+        self.STGCN_layers.append(SpatioTemporalGraphConv(64))
+        self.STGCN_layers.append(SpatioTemporalGraphConv(64))
+        self.STGCN_layers.append(SpatioTemporalGraphConv(128, stride=2))
+        self.STGCN_layers.append(SpatioTemporalGraphConv(128))
+        self.STGCN_layers.append(SpatioTemporalGraphConv(128))
+        self.STGCN_layers.append(SpatioTemporalGraphConv(256, stride=2))
+        self.STGCN_layers.append(SpatioTemporalGraphConv(256))
+        self.STGCN_layers.append(SpatioTemporalGraphConv(256))
 
         self.pool = tf.keras.layers.GlobalAveragePooling2D(data_format='channels_first')
 
@@ -154,8 +100,8 @@ class Model(tf.keras.Model):
                                              kernel_size=1,
                                              padding='same',
                                              kernel_initializer=INITIALIZER,
-                                             data_format='channels_first',
-                                             kernel_regularizer=REGULARIZER)
+                                             kernel_regularizer=REGULARIZER,
+                                             data_format='channels_first')
 
     def call(self, x, training):
         N = tf.shape(x)[0]

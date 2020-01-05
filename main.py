@@ -1,4 +1,3 @@
-from model.stagcn import Model
 import tensorflow as tf
 from tqdm import tqdm
 import argparse
@@ -18,7 +17,9 @@ session = InteractiveSession(config=config)
 def get_parser():
     # parameter priority: command line > config > default
     parser = argparse.ArgumentParser(
-        description='Spatial Temporal Graph Convolutional Neural Network for Skeleton-Based Action Recognition')
+        description='Graph Convolutional Neural Network for Skeleton-Based Action Recognition')
+    parser.add_argument(
+        '--model', default='stgcn', help='model used to train')
     parser.add_argument(
         '--base-lr', type=float, default=1e-1, help='initial learning rate')
     parser.add_argument(
@@ -60,6 +61,14 @@ def get_parser():
         help='list of gpus to use for training, eg: "/gpu:0" "/gpu:1"')
 
     return parser
+
+
+def import_class(name):
+    components = name.split('.')
+    mod = __import__(components[0])
+    for comp in components[1:]:
+        mod = getattr(mod, comp)
+    return mod
 
 
 def save_arg(arg):
@@ -168,10 +177,11 @@ if __name__ == "__main__":
     global_batch_size  = arg.batch_size*strategy.num_replicas_in_sync
     arg.gpus           = strategy.num_replicas_in_sync
     freeze_graph_until = arg.freeze_graph_until
+    model_type         = 'model.'+arg.model
 
     #copy hyperparameters and model definition to log folder
     save_arg(arg)
-    shutil.copy2(inspect.getfile(Model), arg.log_dir)
+    shutil.copy2(inspect.getfile(import_class(model_type)), arg.log_dir)
 
     '''
     Get tf.dataset objects for training and testing data
@@ -198,7 +208,7 @@ if __name__ == "__main__":
     learning_rate  = tf.keras.optimizers.schedules.PiecewiseConstantDecay(boundaries, values)
 
     with strategy.scope():
-        model        = Model(num_classes=num_classes)
+        model        = import_class(model_type).Model(num_classes=num_classes)
         optimizer    = tf.keras.optimizers.SGD(learning_rate=learning_rate,
                                                momentum=0.9,
                                                nesterov=True)

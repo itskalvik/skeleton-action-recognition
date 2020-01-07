@@ -18,7 +18,7 @@ class SpatioTemporalGraphConv(tf.keras.layers.Layer):
         self.activation  = activation
         self.residual    = residual
 
-        self.sgcn = GraphIsoConvTD([filters/2, filters/2], kernel_size=kernel_size[0])
+        self.sgcn = GraphIsoConvTD([int(filters/2), int(filters/2)], kernel_size=kernel_size[0])
 
         self.tgcn = tf.keras.Sequential()
         self.tgcn.add(tf.keras.layers.BatchNormalization(axis=1))
@@ -75,7 +75,7 @@ class Model(tf.keras.Model):
         super().__init__()
 
         graph = Graph()
-        self.A = tf.Variable(graph.A,
+        self.A = tf.Variable(graph.A[:2],
                              dtype=tf.float32,
                              trainable=False,
                              name='adjacency_matrix')

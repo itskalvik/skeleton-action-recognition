@@ -19,7 +19,7 @@ def get_parser():
     parser = argparse.ArgumentParser(
         description='Graph Convolutional Neural Network for Skeleton-Based Action Recognition')
     parser.add_argument(
-        '--model', default='stgcn', help='model used to train')
+        '--model', required=True, help='model used to train')
     parser.add_argument(
         '--base-lr', type=float, default=1e-1, help='initial learning rate')
     parser.add_argument(
@@ -31,7 +31,7 @@ def get_parser():
     parser.add_argument(
         '--save-freq', type=int, default=10, help='periodicity of saving model weights')
     parser.add_argument(
-        '--freeze-graph-until', type=int, default=10, help='adjacency matrices will be trained only after this epoch')
+        '--freeze-graph-until', type=int, default=80, help='adjacency matrices will be trained only after this epoch')
     parser.add_argument(
         '--checkpoint-path',
         default="checkpoints/STGCN",

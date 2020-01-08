@@ -28,6 +28,10 @@ class Graph:
             return self.A
         if labeling_mode == 'spatial':
             A = tools.get_spatial_graph(num_node, self_link, inward, outward)
+        elif labeling_mode == 'GIN':
+            A = tools.get_spatial_graph(num_node, self_link, inward, outward,
+                                        normalize=False)
+            A = A[1:]
         else:
             raise ValueError()
         return A
@@ -36,10 +40,12 @@ class Graph:
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
     import os
+    import numpy as np
 
     # os.environ['DISPLAY'] = 'localhost:11.0'
-    A = Graph('spatial').get_adjacency_matrix()
+    A = Graph('GIN').get_adjacency_matrix()
     for i in A:
         plt.imshow(i, cmap='gray')
         plt.show()
+
     print(A)

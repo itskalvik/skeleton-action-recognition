@@ -19,9 +19,12 @@ def normalize_digraph(A):  # 除以每列的和
     return AD
 
 
-def get_spatial_graph(num_node, self_link, inward, outward):
-    I = edge2mat(self_link, num_node)
-    In = normalize_digraph(edge2mat(inward, num_node))
-    Out = normalize_digraph(edge2mat(outward, num_node))
+def get_spatial_graph(num_node, self_link, inward, outward, normalize=True):
+    I   = edge2mat(self_link, num_node)
+    In  = edge2mat(inward, num_node)
+    Out = edge2mat(outward, num_node)
+    if normalize:
+        In  = normalize_digraph(In)
+        Out = normalize_digraph(Out)
     A = np.stack((I, In, Out))
     return A

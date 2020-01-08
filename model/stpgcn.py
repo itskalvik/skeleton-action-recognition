@@ -27,9 +27,7 @@ class ProjectionGraphConv(tf.keras.layers.Layer):
         T = tf.shape(x)[2]
         V = tf.shape(x)[3]
 
-        x = tf.reshape(x, [N, C, -1, 1])
-
-        z = (x-self.centers)/tf.sigmoid(self.variance)
+        z = (tf.reshape(x, [N, C, -1, 1])-self.centers)/tf.sigmoid(self.variance)
 
         q = tf.maximum(tf.reduce_sum(tf.square(z), axis=1), 1e-12)*(-1/2)
         q = tf.nn.softmax(q, axis=-1)
@@ -41,9 +39,11 @@ class ProjectionGraphConv(tf.keras.layers.Layer):
         A_proj = tf.matmul(z, z, transpose_a=True)
 
         z, _ = self.graph_conv(z, A_proj, training=training)
-        x = tf.matmul(q, tf.transpose(z, perm=[0, 2, 1]))
-        x = tf.transpose(x, perm=[0, 2, 1])
-        x = tf.reshape(x, [N, C, T, V])
+        x_proj = tf.matmul(q, tf.transpose(z, perm=[0, 2, 1]))
+        x_proj = tf.transpose(x_proj, perm=[0, 2, 1])
+        x_proj = tf.reshape(x_proj, [N, -1, T, V])
+
+        x += x_proj
         return x, A
 
 

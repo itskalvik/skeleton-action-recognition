@@ -13,7 +13,6 @@ config = ConfigProto()
 config.gpu_options.allow_growth = True
 session = InteractiveSession(config=config)
 
-
 def get_parser():
     # parameter priority: command line > config > default
     parser = argparse.ArgumentParser(
@@ -33,12 +32,8 @@ def get_parser():
     parser.add_argument(
         '--freeze-graph-until', type=int, default=80, help='adjacency matrices will be trained only after this epoch')
     parser.add_argument(
-        '--checkpoint-path',
-        default="checkpoints/STGCN",
-        help='folder to store model weights')
-    parser.add_argument(
         '--log-dir',
-        default="logs/STGCN",
+        default="logs/",
         help='folder to store model-definition/training-logs/hyperparameters')
     parser.add_argument(
         '--train-data-path',
@@ -48,6 +43,10 @@ def get_parser():
         '--test-data-path',
         default="data/ntu/xview/val_data_joint",
         help='path to folder with testing dataset tfrecord files')
+    parser.add_argument(
+        '--notes',
+        default="",
+        help='run details')
     parser.add_argument(
         '--steps',
         type=int,
@@ -109,7 +108,8 @@ def get_dataset(directory, num_classes=60, batch_size=32, drop_remainder=False,
         features = tf.io.parse_single_example(example_proto, feature_description)
         data =  tf.io.parse_tensor(features['features'], tf.float32)
         label = tf.one_hot(features['label'], num_classes)
-        data = tf.reshape(data, (3, 300, 25, 2))
+        #data = tf.reshape(data, (3, 300, 25, 2))
+        data = tf.reshape(data, (224, 224, 1))
         return data, label
 
     records = [os.path.join(directory, file) for file in os.listdir(directory) if file.endswith("tfrecord")]
@@ -157,7 +157,6 @@ def train_step(features, labels, train_adj):
     cross_entropy_loss(loss)
   strategy.experimental_run_v2(step_fn, args=(features, labels, train_adj))
 
-
 if __name__ == "__main__":
     parser = get_parser()
     arg = parser.parse_args()
@@ -165,19 +164,35 @@ if __name__ == "__main__":
     base_lr            = arg.base_lr
     num_classes        = arg.num_classes
     epochs             = arg.num_epochs
-    checkpoint_path    = arg.checkpoint_path
     log_dir            = arg.log_dir
+    checkpoint_path    = os.path.join(arg.log_dir, "checkpoints")
     train_data_path    = arg.train_data_path
     test_data_path     = arg.test_data_path
     save_freq          = arg.save_freq
     steps              = arg.steps
     batch_size         = arg.batch_size
     gpus               = arg.gpus
+    notes              = arg.notes
     strategy           = tf.distribute.MirroredStrategy(arg.gpus)
     global_batch_size  = arg.batch_size*strategy.num_replicas_in_sync
     arg.gpus           = strategy.num_replicas_in_sync
     freeze_graph_until = arg.freeze_graph_until
     model_type         = 'model.'+arg.model
+
+    run_params      = dict(vars(arg))
+    del run_params['train_data_path']
+    del run_params['test_data_path']
+    del run_params['log_dir']
+    del run_params['save_freq']
+    del run_params['notes']
+    del run_params['freeze_graph_until']
+    sorted(run_params)
+
+    run_params   = str(run_params).replace(" ", "").replace("'", "").replace(",", "-")[1:-1]
+    run_params   += "-" + notes
+    log_dir      = os.path.join(arg.log_dir, run_params)
+    arg.log_dir  = log_dir
+    checkpoint_path = os.path.join(arg.log_dir, "checkpoints")
 
     #copy hyperparameters and model definition to log folder
     save_arg(arg)

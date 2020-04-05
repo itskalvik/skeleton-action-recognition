@@ -1,4 +1,6 @@
-data/ntu
+data/nturgbd_raw/nturgb+d_skeletons
+logs/
+data/ntu/
 checkpoints/
 
 # Created by .ignore support plugin (hsz.mobi)

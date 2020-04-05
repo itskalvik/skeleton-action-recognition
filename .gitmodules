@@ -1,0 +1,6 @@
+[submodule "data_gen/lightweight-human-pose-estimation-3d-demo.pytorch"]
+	path = data_gen/lightweight-human-pose-estimation-3d-demo.pytorch
+	url = https://github.com/Daniil-Osokin/lightweight-human-pose-estimation-3d-demo.pytorch.git
+[submodule "data_gen/pose_est_3d"]
+	path = data_gen/pose_est_3d
+	url = https://github.com/Daniil-Osokin/lightweight-human-pose-estimation-3d-demo.pytorch.git

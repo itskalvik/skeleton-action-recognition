@@ -1,21 +1,92 @@
+from scipy.ndimage import gaussian_filter1d
+from scipy.interpolate import interp1d
 from scipy import signal
 import multiprocessing
 from tqdm import tqdm
 import numpy as np
 import pickle
+import json
 import os
 
-# define edges of the skeleton graph
-edges = [(0, 1, 0.3), (1, 20, 0.3), (20, 2, 0.3), (2, 3, 0.1),
-        (20, 4, 0.1), (4, 5, 0.1), (5, 6, 0.1), (6, 7, 0.1),
-        (7, 21, 0.05), (7, 22, 0.05), (20, 8, 0.1), (8, 9, 0.1),
-        (9, 10, 0.1), (10, 11, 0.1), (11, 23, 0.05), (11, 24, 0.05),
-        (0, 16, 0.1), (0, 12, 0.1), (12, 13, 0.15), (13, 14, 0.12),
-        (14, 15, 0.1), (16, 17, 0.15), (17, 18, 0.12), (18, 19, 0.1)]
-radar_lambda=0.02
-rangeres=0.01
-radar_loc=[0,0,0]
-pad_frames=15
+import sys
+sys.path.extend(['../'])
+from data_gen.gen_joint_data import *
+
+'''
+Extract joint data from Microsoft Azure Kinect pose data
+Args:
+    filename: str, file name of json data
+Returns:
+    data: numpy array; shape-(num_frames, num_joints, 3), joint position data
+    edges: list of tuples, tuple shape-(3), source joint, dest joint,
+                                            dia of part (modeled as ellipsoid)
+'''
+def preprocess_azure_kinect(filename):
+    # define edges of the skeleton graph
+    edges = [(1, 0, 0.3), (2, 1, 0.3), (3, 2, 0.1), (4, 2, 0.1),
+             (5, 4, 0.1), (6, 5, 0.1), (7, 6, 0.1), (8, 7, 0.05),
+             (9, 8, 0.05), (10, 7, 0.05), (11, 2, 0.1), (12, 11, 0.1),
+             (13, 12, 0.1), (14, 13, 0.1), (15, 14, 0.05), (16, 15, 0.05),
+             (17, 14, 0.05), (18, 0, 0.1), (19, 18, 0.15), (20, 19, 0.12),
+             (21, 20, 0.1), (22, 0, 0.1), (23, 22, 0.15),
+             (24, 23, 0.12), (25, 24, 0.1), (26, 3, 0.1)]
+
+    # read json file
+    with open(filename) as f:
+        json_file = json.load(f)
+
+    # gather joint positions and timestamps of all joints
+    data = []
+    for frame in json_file['frames']:
+        if frame['num_bodies'] > 0:
+            data.append(frame['bodies'][0]['joint_positions'])
+    data = np.array(data)
+    data = data * 0.001 # convert data from meters to mm
+    return data, edges
+
+
+'''
+Extract joint data from NTU pose data
+Args:
+    filename: str, file name of json data
+Returns:
+    data: numpy array; shape-(num_frames, num_joints, 3), joint position data
+    edges: list of tuples, tuple shape-(3), source joint, dest joint,
+                                            dia of part (modeled as ellipsoid)
+'''
+def preprocess_ntu(filename):
+    edges = [(0, 1, 0.3), (1, 20, 0.3), (20, 2, 0.3), (2, 3, 0.1),
+            (20, 4, 0.1), (4, 5, 0.1), (5, 6, 0.1), (6, 7, 0.1),
+            (7, 21, 0.05), (7, 22, 0.05), (20, 8, 0.1), (8, 9, 0.1),
+            (9, 10, 0.1), (10, 11, 0.1), (11, 23, 0.05), (11, 24, 0.05),
+            (0, 16, 0.1), (0, 12, 0.1), (12, 13, 0.15), (13, 14, 0.12),
+            (14, 15, 0.1), (16, 17, 0.15), (17, 18, 0.12), (18, 19, 0.1)]
+
+    data = read_xyz(filename, max_body_kinect, num_joint)
+    data = np.transpose(data, (3, 1, 2, 0))
+    return data, edges
+
+
+'''
+Smooths data with a gaussian window and upscales data frame rate with cubic
+interpolation
+Args:
+    data: numpy array; shape-(num_frames, num_joints, 3), joint data
+    num_pad_frames: int, number of interpolated frames to insert between real frames
+    sigma: int, sigma value for gaussian smoothing
+Returns:
+    data: numpy array; shape-(num_frames, num_joints, 3), padded data
+'''
+def pad_frames(data, num_pad_frames=1, sigma=3):
+    T, V, C = data.shape
+    data = data.reshape(T, V*C)
+    f = interp1d(np.linspace(0, 1, T),
+                 gaussian_filter1d(data, sigma, axis=0),
+                 'cubic',
+                 axis=0)
+    data = f(np.linspace(0, 1, num_pad_frames*T))
+    data = np.reshape(data, [-1, V, C])
+    return data
 
 
 '''
@@ -45,55 +116,125 @@ def rcsellipsoid(a,b,c,phi,theta):
 
 
 '''
-Calculates the backscattered RCS of a skeleton sequence
-
+Calculates the phase for each part in the skeleton.
 Args:
-    joint1: numpy array; shape-(num_frames, 3), joint to calc backscattes
-    joint2: numpy array; shape-(num_frames, 3), joint that belongs to part of interest
-    edges: list of tuples, tuple shape-(4), vertices in edge, dia of part, length of
-           part (modeled as ellipsoid)
-    radar_loc: list, shape-(3), radar location
+    joint1: numpy array, joint 1 of each part
+    joint2: numpy array, joint 2 of each part
+    radar_loc: list, shape: (3,), location of radar
     radar_lambda: float, radar wavelength
     rangeres: float, range resolution
 
 Returns:
-    TF; numpy array; shape-(512, 283), spectrogram
+    rcs: numpy array; shape-(num_frames,), radar backscatter of part
 '''
-def synthetic_spectrogram(filename):
-    src, dst, part_dia = map(list, zip(*edges))
-    joint_data = read_xyz(filename, max_body_kinect, num_joint)
-    joint_data = np.transpose(joint_data, (3, 1, 2, 0))
-    data = np.zeros((600, max_frame*pad_frames), dtype=np.complex64)
+def skeleton_phase(joint1, joint2, part_dia,
+                   radar_loc=[0, 0, 0],
+                   radar_lambda=0.001,
+                   rangeres=0.01):
+    radar_dist = np.abs(joint1-radar_loc)
+    distances = np.linalg.norm(radar_dist, axis=-1)
+    A = radar_loc-((joint1+joint2)/2)
+    B = joint2-joint1
+    A_dot_B = (A*B).sum(axis=-1)
+    A_sum_sqrt = np.linalg.norm(A, axis=-1)
+    B_sum_sqrt = np.linalg.norm(B, axis=-1)
+    ThetaAngle = np.arccos(A_dot_B / ((A_sum_sqrt * B_sum_sqrt)+1e-6))
+    PhiAngle = np.arcsin((radar_loc[1]-joint1[:, :, 1])/ \
+                         (np.linalg.norm(radar_dist[:, :, :2], axis=-1)+1e-6))
+    rcs = rcsellipsoid(part_dia,
+                       part_dia,
+                       np.linalg.norm(joint1-joint2, axis=-1).mean(axis=0),
+                       PhiAngle,
+                       ThetaAngle)
+    amp = np.sqrt(rcs)
+    phase = amp*np.exp(-1j*4*np.pi*distances/radar_lambda)
+    indices = np.floor(distances/rangeres).astype(int)-1
 
-    for i in range(2):
-        person = preprocess_ntu(joint_data[i], pad_frames)
+    return phase, indices
+
+
+'''
+Calculates the backscattered RCS of a skeleton sequence
+Args:
+    data: numpy array; shape-(num_frames, num_joints, 3), joint position data
+    edges: list of tuples, tuple shape-(3), source joint, dest joint,
+                                            dia of part (modeled as ellipsoid)
+    radar_loc: list, shape-(3), radar location
+    radar_lambda: float, radar wavelength
+    rangeres: float, range resolution
+    num_pad_frames: int, number of interpolated frames to insert between real frames
+Returns:
+    TF; numpy array; shape-(num_range_bins, num_frames), backscattered RCS
+    range_map; numpy array; range map
+'''
+def synthetic_spectrogram(data, edges,
+                          radar_lambda=0.02,
+                          rangeres=0.01,
+                          radar_loc=[0,0,0],
+                          num_pad_frames=25):
+    src, dst, part_dia = map(list, zip(*edges))
+    data = pad_frames(data, num_pad_frames)
+    num_frames = data.shape[0]
+    num_parts = len(edges)
+    phase, indices = skeleton_phase(data[:, src],
+                                    data[:, dst],
+                                    part_dia,
+                                    radar_loc,
+                                    radar_lambda,
+                                    rangeres)
+    data = np.zeros((np.max(indices)+1, num_frames), dtype=np.complex64)
+    for i in range(num_parts):
+        data[indices[:, i], np.arange(num_frames)] += phase[:, i]
+
+    range_map = np.flip(20*np.log10(np.abs(data)+1e-6), axis=0)
+    data = np.sum(data, axis=0)
+
+    _, _, TF = signal.stft(data,
+                           window=signal.gaussian(512, std=16),
+                           nperseg=512,
+                           noverlap=512-16,
+                           nfft=512,
+                           return_onesided=False)
+    TF = np.fft.fftshift(np.abs(TF), 0)
+    TF = 20*np.log10(TF+1e-6)
+    return TF, range_map
+
+
+'''
+Calculates the backscattered RCS of a skeleton sequence from ntu dataset
+Args:
+    data: numpy array; shape-(num_frames, num_joints, 3), joint position data
+    edges: list of tuples, tuple shape-(3), source joint, dest joint,
+                                            dia of part (modeled as ellipsoid)
+    radar_loc: list, shape-(3), radar location
+    radar_lambda: float, radar wavelength
+    rangeres: float, range resolution
+    num_pad_frames: int, number of interpolated frames to insert between real frames
+Returns:
+    TF; numpy array; shape-(num_range_bins, num_frames), backscattered RCS
+    range_map; numpy array; range map
+'''
+def synthetic_spectrogram_ntu(data, edges,
+                              radar_lambda=0.02,
+                              rangeres=0.01,
+                              radar_loc=[0,0,0],
+                              num_pad_frames=25):
+    src, dst, part_dia = map(list, zip(*edges))
+    num_parts = len(edges)
+    phase_data = np.zeros((600, 300*num_pad_frames), dtype=np.complex64)
+    for person in data:
         if person.sum() == 0:
             continue
-
-        joint1 = person[:, src]
-        joint2 = person[:, dst]
-        radar_dist = np.abs(joint1-radar_loc)
-        distances = np.linalg.norm(radar_dist, axis=-1)
-        A = radar_loc-((joint1+joint2)/2)
-        B = joint2-joint1
-        A_dot_B = (A*B).sum(axis=-1)
-        A_sum_sqrt = np.linalg.norm(A, axis=-1)
-        B_sum_sqrt = np.linalg.norm(B, axis=-1)
-        ThetaAngle = np.arccos(A_dot_B / ((A_sum_sqrt * B_sum_sqrt)+1e-6))
-        PhiAngle = np.arcsin((radar_loc[1]-joint1[:, :, 1])/ \
-                            (np.linalg.norm(radar_dist[:, :, :2], axis=-1)+1e-6))
-
-        rcs = rcsellipsoid(part_dia,
-                           part_dia,
-                           np.linalg.norm(joint1-joint2, axis=-1).mean(axis=0),
-                           PhiAngle,
-                           ThetaAngle)
-        amp = np.sqrt(rcs)
-        phase = amp*np.exp(-1j*4*np.pi*distances/radar_lambda)
-        indices = np.floor(distances/rangeres).astype(int)-1
-
-        for i in range(joint1.shape[1]):
-            data[indices[:, i], np.arange(joint1.shape[0])] += phase[:, i]
+        person = pad_frames(person, num_pad_frames)
+        phase, indices = skeleton_phase(person[:, src],
+                                        person[:, dst],
+                                        part_dia,
+                                        radar_loc,
+                                        radar_lambda,
+                                        rangeres)
+        for i in range(num_parts):
+            phase_data[indices[:, i], np.arange(person.shape[0])] += phase[:, i]
+    data = phase_data
 
     range_map = np.flip(20*np.log10(np.abs(data)+1e-6), axis=0)
     data = np.sum(data, axis=0)
@@ -101,14 +242,12 @@ def synthetic_spectrogram(filename):
     _, _, TF = signal.stft(data,
                            window=signal.gaussian(224, std=16),
                            nperseg=224,
-                           noverlap=224-20,
+                           noverlap=224-16,
                            nfft=224,
                            return_onesided=False)
-
-    TF = np.roll(TF, TF.shape[0]//2, axis=0)
-    TF = np.flip(TF, axis=0)
-    TF = 20*np.log10(np.abs(TF)+1e-6)
-    return TF.astype(np.float32)[:, :224]
+    TF = np.fft.fftshift(np.abs(TF), 0)
+    TF = 20*np.log10(TF+1e-6)
+    return TF, range_map
 
 
 def gendata(data_path, out_path, num_shards, benchmark='xview', part='eval'):

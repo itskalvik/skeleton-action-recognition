@@ -6,6 +6,7 @@ from tqdm import tqdm
 import tensorflow as tf
 from pathlib import Path
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 def _bytes_feature(value):
   """Returns a bytes_list from a string / byte."""

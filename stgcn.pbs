@@ -1,0 +1,17 @@
+#! /bin/bash
+
+# ===== PBS Options ========
+#PBS -N "spectrogram-real-201"
+#PBS -l :gpus=2:
+
+python3 $HOME/GCN/main.py \
+--model DenseNet201 \
+--base-lr 0.01 \
+--batch-size 32 \
+--num-classes 60 \
+--num-epochs 2000 \
+--save-freq 50 \
+--steps 1000 1750 1900 \
+--log-dir /home/kjakkala/GCN/logs/ \
+--test-data-path /home/kjakkala/GCN/data/ntu/xview/val_data_joint_real_spectrograms \
+--train-data-path /home/kjakkala/GCN/data/ntu/xview/train_data_joint_real_spectrograms

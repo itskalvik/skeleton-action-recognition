@@ -59,6 +59,27 @@ class SpatioTemporalGraphConv(tf.keras.layers.Layer):
         return x, A
 
 
+class TemporalAttention(tf.keras.Model):
+    def __init__(self, num_hidden):
+        super().__init__()
+        self.mlp = tf.keras.models.Sequential()
+        for units in num_hidden:
+            self.mlp.add(tf.keras.layers.Dense(units, activation='relu'))
+        self.mlp.add(tf.keras.layers.Dense(1, activation='sigmoid'))
+
+    def call(self, x, training):
+        N = tf.shape(x)[0]
+        C = tf.shape(x)[1]
+        T = tf.shape(x)[2]
+        V = tf.shape(x)[3]
+
+        x = tf.transpose(x, [0, 2, 3, 1])
+        attention = self.mlp(tf.reshape(x, [-1, T, V*C]), training=training)
+        x = tf.math.multiply(x, tf.reshape(attention, [N, T, 1, 1]))
+        x = tf.transpose(x, [0, 3, 1, 2])
+        return x
+
+
 """Spatial temporal graph convolutional networks.
     Args:
         num_class (int): Number of classes for the classification task

@@ -148,7 +148,7 @@ if __name__ == '__main__':
                         default='../data/nturgbd_raw/samples_with_missing_skeletons.txt')
     parser.add_argument('--out_folder', default='../data/ntu/')
 
-    benchmark = ['xsub', 'xview']
+    benchmark = ['xview']
     part = ['train', 'val']
     arg = parser.parse_args()
 

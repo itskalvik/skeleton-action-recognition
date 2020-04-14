@@ -53,11 +53,6 @@ def get_parser():
         default=[10, 50],
         nargs='+',
         help='the epoch where optimizer reduce the learning rate, eg: 10 50')
-    parser.add_argument(
-        '--gpus',
-        default=None,
-        nargs='+',
-        help='list of gpus to use for training, eg: "/gpu:0" "/gpu:1"')
 
     return parser
 
@@ -171,9 +166,8 @@ if __name__ == "__main__":
     save_freq          = arg.save_freq
     steps              = arg.steps
     batch_size         = arg.batch_size
-    gpus               = arg.gpus
     notes              = arg.notes
-    strategy           = tf.distribute.MirroredStrategy(arg.gpus)
+    strategy           = tf.distribute.MirroredStrategy()
     global_batch_size  = arg.batch_size*strategy.num_replicas_in_sync
     arg.gpus           = strategy.num_replicas_in_sync
     freeze_graph_until = arg.freeze_graph_until
@@ -186,10 +180,12 @@ if __name__ == "__main__":
     del run_params['save_freq']
     del run_params['notes']
     del run_params['freeze_graph_until']
+    del run_params['gpus']
     sorted(run_params)
 
     run_params   = str(run_params).replace(" ", "").replace("'", "").replace(",", "-")[1:-1]
-    run_params   += "-" + notes
+    if not notes:
+        run_params   += "-" + notes
     log_dir      = os.path.join(arg.log_dir, run_params)
     arg.log_dir  = log_dir
     checkpoint_path = os.path.join(arg.log_dir, "checkpoints")
@@ -220,7 +216,8 @@ if __name__ == "__main__":
     values = [base_lr]*(len(steps)+1)
     for i in range(1, len(steps)+1):
         values[i] *= 0.1**i
-    learning_rate  = tf.keras.optimizers.schedules.PiecewiseConstantDecay(boundaries, values)
+    learning_rate  = tf.keras.optimizers.schedules.PiecewiseConstantDecay(boundaries,
+                                                                          values)
 
     with strategy.scope():
         model        = import_class(model_type).Model(num_classes=num_classes)

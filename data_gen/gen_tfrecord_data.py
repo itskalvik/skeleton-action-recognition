@@ -25,7 +25,8 @@ def serialize_example(features, label):
     }
     return tf.train.Example(features=tf.train.Features(feature=feature)).SerializeToString()
 
-def gen_tfrecord_data(num_shards, label_path, data_path, dest_folder, shuffle):
+def gen_tfrecord_data(num_shards, label_path, data_path, shuffle):
+    dest_folder = data_path[:-4]
     label_path = Path(label_path)
     if not (label_path.exists()):
         print('Label file does not exist')
@@ -54,7 +55,7 @@ def gen_tfrecord_data(num_shards, label_path, data_path, dest_folder, shuffle):
         return -1
 
     print("Data shape:", data.shape)
-    if 'True' in shuffle:
+    if shuffle:
         p = np.random.permutation(len(labels))
         labels = labels[p]
         data = data[p]
@@ -78,22 +79,20 @@ if __name__ == '__main__':
                         type=int,
                         default=40,
                         help='number of files to split dataset into')
-    parser.add_argument('--label-path',
-                        required=True,
-                        help='path to pkl file with labels')
-    parser.add_argument('--shuffle',
-                        required=True,
-                        help='setting it to True will shuffle the labels and data together')
     parser.add_argument('--data-path',
-                        required=True,
+                        default='../data/ntu/xview/{}_data_joint.npy',
                         help='path to npy file with data')
-    parser.add_argument('--dest-folder',
-                        required=True,
-                        help='path to folder in which tfrecords will be stored')
+    parser.add_argument('--label-path',
+                        default='../data/ntu/xview/{}_label.pkl',
+                        help='path to pkl file with labels')
     arg = parser.parse_args()
 
-    gen_tfrecord_data(arg.num_shards,
-                      arg.label_path,
-                      arg.data_path,
-                      arg.dest_folder,
-                      arg.shuffle)
+    for part in ['train', 'val']:
+        if 'train' in part:
+            shuffle = True
+        else:
+            shuffle = False
+        gen_tfrecord_data(arg.num_shards,
+                          arg.label_path.format(part),
+                          arg.data_path.format(part),
+                          shuffle)

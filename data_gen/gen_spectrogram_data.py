@@ -1,6 +1,5 @@
 from scipy.ndimage import gaussian_filter1d
 from scipy.interpolate import interp1d
-from skimage.transform import resize
 from scipy import signal
 import multiprocessing
 from tqdm import tqdm
@@ -124,8 +123,7 @@ def synthetic_spectrogram_ntu(data,
                               radar_lambda=4e-4,
                               rangeres=0.01,
                               radar_loc=[0,0,0],
-                              num_pad_frames=500,
-                              image_size=224):
+                              num_pad_frames=500):
     data = np.transpose(data, (3, 1, 2, 0))
     phase_data = np.zeros((300*num_pad_frames), dtype=np.complex64)
     for person in data:
@@ -146,8 +144,7 @@ def synthetic_spectrogram_ntu(data,
                            return_onesided=False)
     TF = np.fft.fftshift(np.abs(TF), 0)
     TF = 20*np.log(TF+1e-6)
-    TF = resize(TF, (image_size, image_size)).astype(np.float32)
-    return TF
+    return TF.astype(np.float32)
 
 
 def gendata(data_path, part):
@@ -167,7 +164,7 @@ def gendata(data_path, part):
         stat_dict['std'] = np.std(spectrogram_data)
     spectrogram_data /= stat_dict['std']
 
-    np.save(data_path[:-4]+'_spectrograms.npy', spectrogram_data)
+    np.save(data_path[:-4]+'_spectrograms_4e-4.npy', spectrogram_data)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='NTU-RGB-D Data Converter.')

@@ -28,7 +28,7 @@ class IdentityBlock(tf.keras.Model):
     filters1, filters2 = filters
     bn_axis = -1
 
-    self.conv2a = tf.keras.layers.Conv1D(filters1, kernel_size,
+    self.conv2a = tf.keras.layers.Conv2D(filters1, kernel_size,
                                          padding='same',
                                          use_bias=False,
                                          kernel_initializer='he_normal',
@@ -44,7 +44,7 @@ class IdentityBlock(tf.keras.Model):
                                                        name=bn_name_base + '2a')
     self.act1  = tf.keras.layers.Activation(self.activation)
 
-    self.conv2b = tf.keras.layers.Conv1D(filters2, kernel_size,
+    self.conv2b = tf.keras.layers.Conv2D(filters2, kernel_size,
                                          padding='same',
                                          use_bias=False,
                                          kernel_initializer='he_normal',
@@ -91,8 +91,7 @@ Returns:
   A Keras model instance for the block.
 """
 class ConvBlock(tf.keras.Model):
-  def __init__(self, kernel_size, filters, stage, block, strides=2,
-               activation='relu', regularizer='batchnorm', dropout_rate=0):
+  def __init__(self, kernel_size, filters, stage, block, strides=(2, 2), activation='relu', regularizer='batchnorm', dropout_rate=0):
     self.activation = activation
 
     conv_name_base = 'res' + str(stage) + block + '_branch'
@@ -103,7 +102,7 @@ class ConvBlock(tf.keras.Model):
     filters1, filters2 = filters
     bn_axis = -1
 
-    self.conv2a = tf.keras.layers.Conv1D(filters1, kernel_size,
+    self.conv2a = tf.keras.layers.Conv2D(filters1, kernel_size,
                                          padding='same',
                                          use_bias=False,
                                          kernel_initializer='he_normal',
@@ -119,7 +118,7 @@ class ConvBlock(tf.keras.Model):
                                                        name=bn_name_base + '2a')
     self.act1  = tf.keras.layers.Activation(self.activation)
 
-    self.conv2b = tf.keras.layers.Conv1D(filters2, kernel_size,
+    self.conv2b = tf.keras.layers.Conv2D(filters2, kernel_size,
                                          strides=strides,
                                          padding='same',
                                          use_bias=False,
@@ -136,7 +135,7 @@ class ConvBlock(tf.keras.Model):
                                                        name=bn_name_base + '2b')
     self.act2  = tf.keras.layers.Activation(self.activation)
 
-    self.conv2s = tf.keras.layers.Conv1D(filters2, kernel_size,
+    self.conv2s = tf.keras.layers.Conv2D(filters2, kernel_size,
                                          strides=strides,
                                          padding='same',
                                          use_bias=False,
@@ -168,7 +167,7 @@ class ConvBlock(tf.keras.Model):
     return x
 
 
-"""Instantiates the ResNet architecture.
+"""Instantiates the ResNet50 architecture.
 
 Args:
   num_classes: `int` number of classes for image classification.
@@ -177,16 +176,16 @@ Returns:
     A Keras model instance.
 """
 class Model(tf.keras.Model):
-  def __init__(self, num_classes, num_features=128, num_filters=16,
-               activation='selu', regularizer='batchnorm', dropout_rate=0):
+  def __init__(self, num_classes, num_features=128, num_filters=64,
+               activation='relu', regularizer='batchnorm', dropout_rate=0):
     super().__init__(name='generator')
     bn_axis = -1
     self.activation = activation
     self.num_classes = num_classes
 
-    self.conv1 = tf.keras.layers.Conv1D(num_filters, 7,
-                                        strides=2,
-                                        padding='valid',
+    self.conv1 = tf.keras.layers.Conv2D(num_filters, (7, 7),
+                                        strides=(2, 2),
+                                        padding='same',
                                         use_bias=False,
                                         kernel_initializer='he_normal',
                                         kernel_regularizer=tf.keras.regularizers.l2(L2_WEIGHT_DECAY),
@@ -200,14 +199,14 @@ class Model(tf.keras.Model):
                                                        epsilon=BATCH_NORM_EPSILON,
                                                        name='bn_conv1')
     self.act1 = tf.keras.layers.Activation(self.activation, name=self.activation+'1')
-    self.max_pool1 = tf.keras.layers.MaxPooling1D(3,
-                                                  strides=2,
+    self.max_pool1 = tf.keras.layers.MaxPooling2D((3, 3),
+                                                  strides=(2, 2),
                                                   padding='same',
                                                   name='max_pool1')
 
     self.blocks = []
     self.blocks.append(ConvBlock(3, [num_filters, num_filters],
-                                 strides=1,
+                                 strides=(1, 1),
                                  stage=2,
                                  block='a',
                                  activation=self.activation,
@@ -259,6 +258,7 @@ class Model(tf.keras.Model):
                                      regularizer=regularizer,
                                      dropout_rate=dropout_rate))
 
+    self.avg_pool = tf.keras.layers.GlobalAveragePooling2D(name='avg_pool')
     self.fc1 = tf.keras.layers.Dense(num_features,
                                      activation=self.activation,
                                      kernel_initializer=tf.keras.initializers.RandomNormal(stddev=0.01),
@@ -274,7 +274,9 @@ class Model(tf.keras.Model):
                                         name='logits')
 
   def call(self, img_input, training=False):
-    x = self.conv1(img_input)
+    x = tf.expand_dims(img_input, axis=-1)
+    x = tf.image.resize(x, (256, 256))
+    x = self.conv1(x)
     x = self.bn1(x, training=training)
     x = self.act1(x)
     x = self.max_pool1(x)
@@ -282,7 +284,7 @@ class Model(tf.keras.Model):
     for block in self.blocks:
       x = block(x, training=training)
 
-    x = tf.keras.layers.Flatten()(x)
+    x = self.avg_pool(x)
     fc1 = self.fc1(x)
     logits = self.logits(fc1)
 

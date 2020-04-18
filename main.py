@@ -104,7 +104,8 @@ def get_dataset(directory, num_classes=60, batch_size=32, drop_remainder=False,
         data =  tf.io.parse_tensor(features['features'], tf.float32)
         label = tf.one_hot(features['label'], num_classes)
         #data = tf.reshape(data, (3, 300, 25, 2))
-        data = tf.reshape(data, (224, 224, 1))
+        data = tf.reshape(data, (224, 224))
+        data = tf.transpose(data)
         return data, label
 
     records = [os.path.join(directory, file) for file in os.listdir(directory) if file.endswith("tfrecord")]
@@ -178,7 +179,6 @@ if __name__ == "__main__":
     del run_params['test_data_path']
     del run_params['log_dir']
     del run_params['save_freq']
-    del run_params['notes']
     del run_params['freeze_graph_until']
     del run_params['gpus']
     sorted(run_params)

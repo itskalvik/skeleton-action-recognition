@@ -1,7 +1,7 @@
 from scipy.ndimage import gaussian_filter1d
 from scipy.interpolate import interp1d
+from joblib import Parallel, delayed
 from scipy import signal
-import multiprocessing
 from tqdm import tqdm
 import numpy as np
 import pickle
@@ -119,11 +119,11 @@ Returns:
     TF; numpy array; shape-(num_range_bins, num_frames), backscattered RCS
     range_map; numpy array; range map
 '''
-def synthetic_spectrogram_ntu(data,
-                              radar_lambda=4e-4,
+def synthetic_spectrogram_ntu(data, spectrogram_data, idx,
+                              radar_lambda=1e-3,
                               rangeres=0.01,
                               radar_loc=[0,0,0],
-                              num_pad_frames=500):
+                              num_pad_frames=250):
     data = np.transpose(data, (3, 1, 2, 0))
     phase_data = np.zeros((300*num_pad_frames), dtype=np.complex64)
     for person in data:
@@ -137,23 +137,26 @@ def synthetic_spectrogram_ntu(data,
                                rangeres)
         phase_data[:phase.shape[0]] += phase.sum(axis=-1)
     _, _, TF = signal.stft(phase_data,
-                           window=signal.gaussian(224, std=16),
-                           nperseg=224,
-                           noverlap=224-16,
-                           nfft=224,
+                           window=signal.gaussian(256, std=16),
+                           nperseg=256,
+                           noverlap=256-16,
+                           nfft=256,
                            return_onesided=False)
     TF = np.fft.fftshift(np.abs(TF), 0)
     TF = 20*np.log(TF+1e-6)
-    return TF.astype(np.float32)
+    spectrogram_data[idx] = TF
 
 
 def gendata(data_path, part):
     data = np.load(data_path)
+    spectrogram_data = np.memmap(data_path[:-4]+'_spectrograms_1e-3.npy',
+                                 dtype=np.float32,
+                                 shape=(len(data), 256, 4689),
+                                 mode='w+')
 
     print("Generating Spectrograms")
-    with multiprocessing.Pool() as pool:
-        spectrogram_data = list(tqdm(pool.imap(synthetic_spectrogram_ntu, data),
-                                total=len(data)))
+    Parallel(n_jobs=-1)(delayed(synthetic_spectrogram_ntu)(sample, spectrogram_data, idx)
+                                for idx, sample in tqdm(enumerate(data), total=len(data)))
     del data
 
     print("Normalizing Data")
@@ -163,8 +166,7 @@ def gendata(data_path, part):
     if part == 'train':
         stat_dict['std'] = np.std(spectrogram_data)
     spectrogram_data /= stat_dict['std']
-
-    np.save(data_path[:-4]+'_spectrograms_4e-4.npy', spectrogram_data)
+    del spectrogram_data
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='NTU-RGB-D Data Converter.')

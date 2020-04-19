@@ -1,6 +1,7 @@
 from scipy.ndimage import gaussian_filter1d
 from scipy.interpolate import interp1d
 from joblib import Parallel, delayed
+from skimage.transform import resize
 from scipy import signal
 from tqdm import tqdm
 import numpy as np
@@ -123,7 +124,8 @@ def synthetic_spectrogram_ntu(data, spectrogram_data, idx,
                               radar_lambda=1e-3,
                               rangeres=0.01,
                               radar_loc=[0,0,0],
-                              num_pad_frames=250):
+                              num_pad_frames=250,
+                              image_size=(256, 256)):
     data = np.transpose(data, (3, 1, 2, 0))
     phase_data = np.zeros((300*num_pad_frames), dtype=np.complex64)
     for person in data:
@@ -144,15 +146,18 @@ def synthetic_spectrogram_ntu(data, spectrogram_data, idx,
                            return_onesided=False)
     TF = np.fft.fftshift(np.abs(TF), 0)
     TF = 20*np.log(TF+1e-6)
+    TF = resize(TF, image_size)
     spectrogram_data[idx] = TF
 
 
 def gendata(data_path, part):
     data = np.load(data_path)
-    spectrogram_data = np.memmap(data_path[:-4]+'_spectrograms_1e-3.npy',
+    output_filename = data_path[:-4]+'_spectrograms_1e-3.npy'
+    spectrogram_data = np.memmap(output_filename,
                                  dtype=np.float32,
-                                 shape=(len(data), 256, 4689),
-                                 mode='w+')
+                                 shape=(len(data), 256, 256),
+                                 mode='w+',
+                                 offset=128)
 
     print("Generating Spectrograms")
     Parallel(n_jobs=-1)(delayed(synthetic_spectrogram_ntu)(sample, spectrogram_data, idx)
@@ -166,7 +171,12 @@ def gendata(data_path, part):
     if part == 'train':
         stat_dict['std'] = np.std(spectrogram_data)
     spectrogram_data /= stat_dict['std']
+
+    header = np.lib.format.header_data_from_array_1_0(spectrogram_data)
     del spectrogram_data
+    with open(output_filename, 'r+b') as f:
+        np.lib.format.write_array_header_1_0(f, header)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='NTU-RGB-D Data Converter.')

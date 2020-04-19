@@ -273,9 +273,7 @@ class Model(tf.keras.Model):
                                         bias_regularizer=tf.keras.regularizers.l2(L2_WEIGHT_DECAY),
                                         name='logits')
 
-  def call(self, img_input, training=False):
-    x = tf.expand_dims(img_input, axis=-1)
-    x = tf.image.resize(x, (256, 256))
+  def call(self, x, training=False):
     x = self.conv1(x)
     x = self.bn1(x, training=training)
     x = self.act1(x)

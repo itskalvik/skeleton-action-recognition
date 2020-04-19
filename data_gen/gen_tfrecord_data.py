@@ -46,7 +46,7 @@ def gen_tfrecord_data(num_shards, label_path, data_path, shuffle):
             _, labels = pickle.load(f, encoding='latin1')
 
     # Datashape: Total_samples, 3, 300, 25, 2
-    data   = np.load(data_path, mmap_mode='r')
+    data   = np.load(data_path, allow_pickle=True, mmap_mode='r')
     labels = np.array(labels)
 
     if len(labels) != len(data):

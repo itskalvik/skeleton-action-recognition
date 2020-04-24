@@ -271,7 +271,7 @@ if __name__ == "__main__":
     dataloaders = {x: torch.utils.data.DataLoader(numpy_datasets[x],
                                                   batch_size=batch_size,
                                                   shuffle=True,
-                                                  num_workers=10) \
+                                                  num_workers=16) \
                    for x in ['train', 'val']}
 
     writer = SummaryWriter(log_dir=log_dir)
@@ -329,12 +329,10 @@ if __name__ == "__main__":
                 writer.add_scalar('{}_acc'.format(phase),
                                   torch.sum(preds==labels.data).double()/inputs.size(0),
                                   epoch*len(dataloaders[phase])+i)
-                if phase=='train':
-                    break
 
             if phase=='val':
-                conf_mat = plot_confusion_matrix(dataloaders[phase].dataset.labels,
-                                                 val_preds)
+                conf_mat = get_confusion_matrix(dataloaders[phase].dataset.labels,
+                                                val_preds)
                 writer.add_image('confusion_matrix',
                                  conf_mat,
                                  epoch,

@@ -1,4 +1,3 @@
-
 import torch
 import torchvision
 from torch.utils.tensorboard import SummaryWriter
@@ -14,6 +13,14 @@ import os
 from scipy.ndimage import gaussian_filter1d
 from scipy.interpolate import interp1d
 
+import io
+import PIL
+import itertools
+import matplotlib
+import numpy as np
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix
 
 def get_parser():
     parser = argparse.ArgumentParser(
@@ -50,6 +57,45 @@ def get_parser():
         help='the epoch where optimizer reduce the learning rate, eg: 10 50')
 
     return parser
+
+
+def get_confusion_matrix(y_true, y_pred):
+  """
+  Returns a matplotlib figure containing the plotted confusion matrix.
+  Args:
+    cm (array, shape = [n, n]): a confusion matrix of integer classes
+    class_names (array, shape = [n]): String names of the integer classes
+  """
+  cm = confusion_matrix(y_true, y_pred)
+
+  figure = plt.figure(figsize=(25, 25))
+  plt.imshow(cm, interpolation='nearest', cmap=plt.cm.Oranges)
+  plt.title("Confusion matrix")
+  tick_marks = np.arange(60)
+  plt.xticks(tick_marks, tick_marks)
+  plt.yticks(tick_marks, tick_marks)
+
+  # Normalize the confusion matrix.
+  cm = np.around(cm.astype('float') / cm.sum(axis=1)[:, np.newaxis], decimals=2)
+
+  # Use white text if squares are dark; otherwise black.
+  threshold = cm.max() / 2.
+  for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
+    color = "white" if cm[i, j] > threshold else "black"
+    plt.text(j, i, cm[i, j], horizontalalignment="center", color=color)
+
+  plt.tight_layout()
+  plt.ylabel('True label')
+  plt.xlabel('Predicted label')
+
+  buf = io.BytesIO()
+  plt.savefig(buf, format='png')
+  plt.close(figure)
+  buf.seek(0)
+
+  image = PIL.Image.open(buf)
+  image = np.asarray(image)
+  return image
 
 
 def save_arg(arg):
@@ -258,6 +304,7 @@ if __name__ == "__main__":
                 model.eval()
             running_loss = 0.0
             running_corrects = 0
+            val_preds = []
             for i, data in enumerate(tqdm(dataloaders[phase])):
                 inputs, labels = data
                 inputs = inputs.to(device)
@@ -271,18 +318,31 @@ if __name__ == "__main__":
                     if phase == 'train':
                         loss.backward()
                         optimizer.step()
+                    else:
+                        val_preds.extend(preds.data.cpu().numpy())
 
-                running_loss += loss.item() * inputs.size(0)
-                running_corrects += torch.sum(preds == labels.data)
+                running_loss += loss.item()
+                running_corrects += torch.sum(preds==labels.data)
                 writer.add_scalar('{}_cross_entropy_loss'.format(phase),
                                   loss.item(),
                                   epoch*len(dataloaders[phase])+i)
                 writer.add_scalar('{}_acc'.format(phase),
-                                  torch.sum(preds == labels.data).double()/inputs.size(0),
+                                  torch.sum(preds==labels.data).double()/inputs.size(0),
                                   epoch*len(dataloaders[phase])+i)
+                if phase=='train':
+                    break
 
-            epoch_loss = running_loss / len(dataloaders[phase])
-            epoch_acc = running_corrects.double() / len(dataloaders[phase])
+            if phase=='val':
+                conf_mat = plot_confusion_matrix(dataloaders[phase].dataset.labels,
+                                                 val_preds)
+                writer.add_image('confusion_matrix',
+                                 conf_mat,
+                                 epoch,
+                                 dataformats='HWC')
+                writer.close()
+
+            epoch_loss = running_loss/len(dataloaders[phase])
+            epoch_acc = running_corrects.double()/len(dataloaders[phase].dataset)
             writer.add_scalar('{}_epoch_cross_entropy_loss'.format(phase),
                               epoch_loss,
                               epoch)

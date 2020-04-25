@@ -1,289 +1,101 @@
-import tensorflow as tf
+import torch
+import torchvision
+import numpy as np
 
-L2_WEIGHT_DECAY = 1e-4
-BATCH_NORM_DECAY = 0.9
-BATCH_NORM_EPSILON = 1e-5
+'''
+torch resnet 18 model with Skeleton to Spectrogram generator before model
+'''
+class Model(torch.nn.Module):
+    def __init__(self, num_classes=60, image_size=256, pretrained=True):
+        super(Model, self).__init__()
+        base_model = torchvision.models.resnet18(pretrained=pretrained)
+        base_model.conv1 = torch.nn.Conv2d(1, 64,
+                                           kernel_size=7,
+                                           stride=2,
+                                           padding=3,
+                                           bias=False)
+        torch.nn.init.kaiming_normal_(base_model.conv1.weight,
+                                      mode='fan_out',
+                                      nonlinearity='relu')
+        base_model.fc = torch.nn.Linear(base_model.fc.in_features, num_classes)
+        self.base_model = base_model
+        self.spectrogram = Spectrogram(image_size=image_size)
 
-"""A block that has a identity layer at shortcut.
-Args:
-  kernel_size: the kernel size of middle conv layer at main path
-  filters: list of integers, the filters of 3 conv layer at main path
-  stage: integer, current stage label, used for generating layer names
-  block: 'a','b'..., current block label, used for generating layer names
-  activation: activation function to use in all layers in the block
+    def forward(self, x):
+        x = self.spectrogram(x)
+        x = self.base_model(x)
+        return x
 
-Returns:
-  A Keras model instance for the block.
-"""
-class IdentityBlock(tf.keras.Model):
-  def __init__(self, kernel_size, filters, stage, block, activation='relu',
-               regularizer='batchnorm', dropout_rate=0):
-    self.activation = activation
+'''
+Convert Skeleton data to Spectrogram
+'''
+class Spectrogram(torch.nn.Module):
+    def __init__(self, radar_lambda=1e-3, radar_loc=[0.,0.,0.], image_size=256):
+        super().__init__()
+        self.radar_lambda = torch.nn.Parameter(torch.as_tensor(radar_lambda),
+                                               requires_grad=False)
+        self.radar_loc = torch.nn.Parameter(torch.as_tensor(radar_loc),
+                                            requires_grad=False)
+        self.window = torch.nn.Parameter(torch.hann_window(256),
+                                         requires_grad=False)
+        self.image_size = image_size
 
-    conv_name_base = 'res' + str(stage) + block + '_branch'
-    bn_name_base = 'bn' + str(stage) + block + '_branch'
+        edges = [(0, 1), (1, 20), (20, 2), (2, 3),
+                (20, 4), (4, 5), (5, 6), (6, 7),
+                (7, 21), (7, 22), (20, 8), (8, 9),
+                (9, 10), (10, 11), (11, 23), (11, 24),
+                (0, 16), (0, 12), (12, 13), (13, 14),
+                (14, 15), (16, 17), (17, 18), (18, 19)]
+        self.src, self.dst = map(list, zip(*edges))
 
-    super().__init__(name='stage-' + str(stage) + '_block-' + block)
+    def forward(self, x):
+        joint1 = x[:, :, :, self.src]
+        joint2 = x[:, :, :, self.dst]
+        radar_dist = torch.abs(joint1-self.radar_loc.reshape(-1, 1, 1, 1))
+        distances = torch.norm(radar_dist, dim=1)
+        A = self.radar_loc.reshape(-1, 1, 1, 1)-((joint1+joint2)/2)
+        B = joint2-joint1
+        A_dot_B = torch.sum(A*B, dim=1)
+        A_sum_sqrt = torch.norm(A, dim=1)
+        B_sum_sqrt = torch.norm(B, dim=1)
+        ThetaAngle = torch.acos(A_dot_B / ((A_sum_sqrt * B_sum_sqrt)+1e-6))
+        PhiAngle = torch.asin((self.radar_loc[1]-joint1[:, 1])/
+                              (torch.norm(radar_dist[:, :2], dim=1)+1e-6))
 
-    filters1, filters2 = filters
-    bn_axis = -1
+        c = torch.mean(torch.norm(joint1-joint2, dim=1), dim=2, keepdim=True)
+        c = torch.pow(c, 2)
+        rcs = (np.pi*c)/((torch.sin(ThetaAngle)**2)*(torch.cos(PhiAngle)**2) + \
+                         (torch.sin(ThetaAngle)**2)*(torch.sin(PhiAngle)**2) + \
+                       c*(torch.cos(ThetaAngle)**2))**2
 
-    self.conv2a = tf.keras.layers.Conv2D(filters1, kernel_size,
-                                         padding='same',
-                                         use_bias=False,
-                                         kernel_initializer='he_normal',
-                                         kernel_regularizer=tf.keras.regularizers.l2(L2_WEIGHT_DECAY),
-                                         name=conv_name_base + '2a')
-    if regularizer.lower() == 'dropout':
-        self.bn2a = tf.keras.layers.Dropout(rate=dropout_rate,
-                                            name=bn_name_base + '2a')
-    elif regularizer.lower() == 'batchnorm':
-        self.bn2a = tf.keras.layers.BatchNormalization(axis=bn_axis,
-                                                       momentum=BATCH_NORM_DECAY,
-                                                       epsilon=BATCH_NORM_EPSILON,
-                                                       name=bn_name_base + '2a')
-    self.act1  = tf.keras.layers.Activation(self.activation)
-
-    self.conv2b = tf.keras.layers.Conv2D(filters2, kernel_size,
-                                         padding='same',
-                                         use_bias=False,
-                                         kernel_initializer='he_normal',
-                                         kernel_regularizer=tf.keras.regularizers.l2(L2_WEIGHT_DECAY),
-                                         name=conv_name_base + '2b')
-    if regularizer.lower() == 'dropout':
-        self.bn2b = tf.keras.layers.Dropout(rate=dropout_rate,
-                                            name=bn_name_base + '2b')
-    elif regularizer.lower() == 'batchnorm':
-        self.bn2b = tf.keras.layers.BatchNormalization(axis=bn_axis,
-                                                       momentum=BATCH_NORM_DECAY,
-                                                       epsilon=BATCH_NORM_EPSILON,
-                                                       name=bn_name_base + '2b')
-    self.act2  = tf.keras.layers.Activation(self.activation)
-
-  def call(self, input_tensor, training=False):
-    x = self.conv2a(input_tensor)
-    x = self.bn2a(x, training=training)
-    x = self.act1(x)
-
-    x = self.conv2b(x)
-    x = self.bn2b(x, training=training)
-
-    x = tf.keras.layers.add([x, input_tensor])
-    x = self.act2(x)
-    return x
-
-
-"""A block that has a conv layer at shortcut.
-
-Note that from stage 3,
-the second conv layer at main path is with strides=(2, 2)
-And the shortcut should have strides=(2, 2) as well
-
-Args:
-  kernel_size: the kernel size of middle conv layer at main path
-  filters: list of integers, the filters of 3 conv layer at main path
-  stage: integer, current stage label, used for generating layer names
-  block: 'a','b'..., current block label, used for generating layer names
-  strides: Strides for the second conv layer in the block.
-  activation: activation function to use in all layers in the block
-
-Returns:
-  A Keras model instance for the block.
-"""
-class ConvBlock(tf.keras.Model):
-  def __init__(self, kernel_size, filters, stage, block, strides=(2, 2), activation='relu', regularizer='batchnorm', dropout_rate=0):
-    self.activation = activation
-
-    conv_name_base = 'res' + str(stage) + block + '_branch'
-    bn_name_base = 'bn' + str(stage) + block + '_branch'
-
-    super().__init__(name='stage-' + str(stage) + '_block-' + block)
-
-    filters1, filters2 = filters
-    bn_axis = -1
-
-    self.conv2a = tf.keras.layers.Conv2D(filters1, kernel_size,
-                                         padding='same',
-                                         use_bias=False,
-                                         kernel_initializer='he_normal',
-                                         kernel_regularizer=tf.keras.regularizers.l2(L2_WEIGHT_DECAY),
-                                         name=conv_name_base + '2a')
-    if regularizer.lower() == 'dropout':
-        self.bn2a = tf.keras.layers.Dropout(rate=dropout_rate,
-                                            name=bn_name_base + '2a')
-    elif regularizer.lower() == 'batchnorm':
-        self.bn2a = tf.keras.layers.BatchNormalization(axis=bn_axis,
-                                                       momentum=BATCH_NORM_DECAY,
-                                                       epsilon=BATCH_NORM_EPSILON,
-                                                       name=bn_name_base + '2a')
-    self.act1  = tf.keras.layers.Activation(self.activation)
-
-    self.conv2b = tf.keras.layers.Conv2D(filters2, kernel_size,
-                                         strides=strides,
-                                         padding='same',
-                                         use_bias=False,
-                                         kernel_initializer='he_normal',
-                                         kernel_regularizer=tf.keras.regularizers.l2(L2_WEIGHT_DECAY),
-                                         name=conv_name_base + '2b')
-    if regularizer.lower() == 'dropout':
-        self.bn2b = tf.keras.layers.Dropout(rate=dropout_rate,
-                                            name=bn_name_base + '2b')
-    elif regularizer.lower() == 'batchnorm':
-        self.bn2b = tf.keras.layers.BatchNormalization(axis=bn_axis,
-                                                       momentum=BATCH_NORM_DECAY,
-                                                       epsilon=BATCH_NORM_EPSILON,
-                                                       name=bn_name_base + '2b')
-    self.act2  = tf.keras.layers.Activation(self.activation)
-
-    self.conv2s = tf.keras.layers.Conv2D(filters2, kernel_size,
-                                         strides=strides,
-                                         padding='same',
-                                         use_bias=False,
-                                         kernel_initializer='he_normal',
-                                         kernel_regularizer=tf.keras.regularizers.l2(L2_WEIGHT_DECAY),
-                                         name=conv_name_base + '1')
-    if regularizer.lower() == 'dropout':
-        self.bn2s = tf.keras.layers.Dropout(rate=dropout_rate,
-                                            name=bn_name_base + '2s')
-    elif regularizer.lower() == 'batchnorm':
-        self.bn2s = tf.keras.layers.BatchNormalization(axis=bn_axis,
-                                                       momentum=BATCH_NORM_DECAY,
-                                                       epsilon=BATCH_NORM_EPSILON,
-                                                       name=bn_name_base + '2s')
-
-  def call(self, input_tensor, training=False):
-    x = self.conv2a(input_tensor)
-    x = self.bn2a(x, training=training)
-    x = self.act1(x)
-
-    x = self.conv2b(x)
-    x = self.bn2b(x, training=training)
-
-    shortcut = self.conv2s(input_tensor)
-    shortcut = self.bn2s(shortcut, training=training)
-
-    x = tf.keras.layers.add([x, shortcut])
-    x = self.act2(x)
-    return x
-
-
-"""Instantiates the ResNet50 architecture.
-
-Args:
-  num_classes: `int` number of classes for image classification.
-
-Returns:
-    A Keras model instance.
-"""
-class Model(tf.keras.Model):
-  def __init__(self, num_classes, num_features=128, num_filters=64,
-               activation='relu', regularizer='batchnorm', dropout_rate=0):
-    super().__init__(name='generator')
-    bn_axis = -1
-    self.activation = activation
-    self.num_classes = num_classes
-
-    self.conv1 = tf.keras.layers.Conv2D(num_filters, (7, 7),
-                                        strides=(2, 2),
-                                        padding='same',
-                                        use_bias=False,
-                                        kernel_initializer='he_normal',
-                                        kernel_regularizer=tf.keras.regularizers.l2(L2_WEIGHT_DECAY),
-                                        name='conv1')
-    if regularizer.lower() == 'dropout':
-        self.bn1 = tf.keras.layers.Dropout(rate=dropout_rate,
-                                           name='bn_conv1')
-    elif regularizer.lower() == 'batchnorm':
-        self.bn1 = tf.keras.layers.BatchNormalization(axis=bn_axis,
-                                                       momentum=BATCH_NORM_DECAY,
-                                                       epsilon=BATCH_NORM_EPSILON,
-                                                       name='bn_conv1')
-    self.act1 = tf.keras.layers.Activation(self.activation, name=self.activation+'1')
-    self.max_pool1 = tf.keras.layers.MaxPooling2D((3, 3),
-                                                  strides=(2, 2),
-                                                  padding='same',
-                                                  name='max_pool1')
-
-    self.blocks = []
-    self.blocks.append(ConvBlock(3, [num_filters, num_filters],
-                                 strides=(1, 1),
-                                 stage=2,
-                                 block='a',
-                                 activation=self.activation,
-                                 regularizer=regularizer,
-                                 dropout_rate=dropout_rate))
-    self.blocks.append(IdentityBlock(3, [num_filters, num_filters],
-                                     stage=2,
-                                     block='b',
-                                     activation=self.activation,
-                                     regularizer=regularizer,
-                                     dropout_rate=dropout_rate))
-
-    self.blocks.append(ConvBlock(3, [num_filters*2, num_filters*2],
-                                 stage=3,
-                                 block='a',
-                                 activation=self.activation,
-                                 regularizer=regularizer,
-                                 dropout_rate=dropout_rate))
-    self.blocks.append(IdentityBlock(3, [num_filters*2, num_filters*2],
-                                     stage=3,
-                                     block='b',
-                                     activation=self.activation,
-                                     regularizer=regularizer,
-                                     dropout_rate=dropout_rate))
-
-    self.blocks.append(ConvBlock(3, [num_filters*4, num_filters*4],
-                                 stage=4,
-                                 block='a',
-                                 activation=self.activation,
-                                 regularizer=regularizer,
-                                 dropout_rate=dropout_rate))
-    self.blocks.append(IdentityBlock(3, [num_filters*4, num_filters*4],
-                                     stage=4,
-                                     block='b',
-                                     activation=self.activation,
-                                     regularizer=regularizer,
-                                     dropout_rate=dropout_rate))
-
-    self.blocks.append(ConvBlock(3, [num_filters*8, num_filters*8],
-                                 stage=5,
-                                 block='a',
-                                 activation=self.activation,
-                                 regularizer=regularizer,
-                                 dropout_rate=dropout_rate))
-    self.blocks.append(IdentityBlock(3, [num_filters*8, num_filters*8],
-                                     stage=5,
-                                     block='b',
-                                     activation=self.activation,
-                                     regularizer=regularizer,
-                                     dropout_rate=dropout_rate))
-
-    self.avg_pool = tf.keras.layers.GlobalAveragePooling2D(name='avg_pool')
-    self.fc1 = tf.keras.layers.Dense(num_features,
-                                     activation=self.activation,
-                                     kernel_initializer=tf.keras.initializers.RandomNormal(stddev=0.01),
-                                     kernel_regularizer=tf.keras.regularizers.l2(L2_WEIGHT_DECAY),
-                                     bias_regularizer=tf.keras.regularizers.l2(L2_WEIGHT_DECAY),
-                                     name='fc1')
-
-    self.logits = tf.keras.layers.Dense(num_classes,
-                                        activation=None,
-                                        kernel_initializer=tf.keras.initializers.RandomNormal(stddev=0.01),
-                                        kernel_regularizer=tf.keras.regularizers.l2(L2_WEIGHT_DECAY),
-                                        bias_regularizer=tf.keras.regularizers.l2(L2_WEIGHT_DECAY),
-                                        name='logits')
-
-  def call(self, x, training=False):
-    x = self.conv1(x)
-    x = self.bn1(x, training=training)
-    x = self.act1(x)
-    x = self.max_pool1(x)
-
-    for block in self.blocks:
-      x = block(x, training=training)
-
-    x = self.avg_pool(x)
-    fc1 = self.fc1(x)
-    logits = self.logits(fc1)
-
-    return logits
+        amp = torch.sqrt(rcs)
+        theta = -1*4*np.pi*distances/self.radar_lambda
+        phase_data = torch.stack((amp*torch.cos(theta),
+                                  amp*torch.sin(theta)),
+                                 dim=4)
+        phase_data = torch.sum(phase_data, dim=[-2, -3])
+        TF1 = torch.stft(phase_data[..., 0],
+                          n_fft=256,
+                          hop_length=16,
+                          win_length=256,
+                          window=self.window,
+                          center=True,
+                          pad_mode='reflect',
+                          normalized=False,
+                          onesided=False)
+        TF2 = torch.stft(phase_data[..., 1],
+                          n_fft=256,
+                          hop_length=16,
+                          win_length=256,
+                          window=self.window,
+                          center=True,
+                          pad_mode='reflect',
+                          normalized=False,
+                          onesided=False)
+        TF = TF1+TF2
+        TF = torch.norm(TF, dim=-1)
+        TF = torch.log(TF+1e-6)
+        TF = torch.roll(TF, 128, dims=1)
+        TF = TF.unsqueeze(dim=1)
+        TF = torch.nn.functional.interpolate(TF, self.image_size)
+        return TF

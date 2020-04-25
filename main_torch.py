@@ -50,12 +50,20 @@ def get_parser():
         default="",
         help='run details')
     parser.add_argument(
-        '--steps',
+        '--cos-anneal-epochs',
         type=int,
-        default=[10, 50],
-        nargs='+',
-        help='the epoch where optimizer reduce the learning rate, eg: 10 50')
-
+        default=10,
+        help='number of epochs for the Cosine Annealing LR cycle')
+    parser.add_argument(
+        '--lambda-train-epoch',
+        type=int,
+        default=1000,
+        help='epoch to training the radar_lambda')
+    parser.add_argument(
+        '--loc-train-epoch',
+        type=int,
+        default=1000,
+        help='epoch to training the radar_loc')
     return parser
 
 
@@ -246,14 +254,20 @@ if __name__ == "__main__":
     log_dir            = arg.log_dir
     data_path          = arg.data_path
     label_path         = arg.label_path
-    steps              = arg.steps
     batch_size         = arg.batch_size
     notes              = arg.notes
+    lambda_train_epoch = arg.lambda_train_epoch
+    loc_train_epoch    = arg.loc_train_epoch
+    cos_anneal_epochs  = arg.cos_anneal_epochs
 
-    run_params      = dict(vars(arg))
+    run_params = dict(vars(arg))
     del run_params['data_path']
     del run_params['label_path']
     del run_params['log_dir']
+    if lambda_train_epoch > num_epochs:
+        del run_params['lambda_train_epoch']
+    if loc_train_epoch > num_epochs:
+        del run_params['loc_train_epoch']
     sorted(run_params)
 
     run_params   = str(run_params).replace(" ", "").replace("'", "").replace(",", "-")[1:-1]
@@ -278,9 +292,10 @@ if __name__ == "__main__":
     model = resnet18(num_classes=num_classes)
     criterion = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=base_lr)
-    lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
-                                                        milestones=steps,
-                                                        gamma=0.1)
+    lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer,
+                                                              T_max=len(dataloaders['train'])*cos_anneal_epochs,
+                                                              eta_min=1e-4)
+    lr_scheduler.last_epoch = num_epochs-1
 
     # add graph to tb
     writer.add_graph(model, numpy_datasets['train'][0][0].unsqueeze(0))
@@ -296,6 +311,16 @@ if __name__ == "__main__":
     for epoch in range(num_epochs):
         print('Epoch {}/{}'.format(epoch+1, num_epochs))
         print('-' * 10)
+
+        if epoch > lambda_train_epoch:
+            for key, value in model.named_parameters():
+                if 'radar_lambda' in key:
+                    value.requires_grad = True
+
+        if epoch > loc_train_epoch:
+            for key, value in model.named_parameters():
+                if 'radar_loc' in key:
+                    value.requires_grad = True
 
         for phase in ['train', 'val']:
             if phase == 'train':

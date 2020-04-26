@@ -1,24 +1,15 @@
 import torch
-import torchvision
 import numpy as np
+from model.resnet18 import resnet18
 
 '''
 torch resnet 18 model with Skeleton to Spectrogram generator before model
 '''
 class Model(torch.nn.Module):
-    def __init__(self, num_classes=60, image_size=256, pretrained=True):
+    def __init__(self, num_classes=60, num_filters=64, image_size=256):
         super(Model, self).__init__()
-        base_model = torchvision.models.resnet18(pretrained=pretrained)
-        base_model.conv1 = torch.nn.Conv2d(1, 64,
-                                           kernel_size=7,
-                                           stride=2,
-                                           padding=3,
-                                           bias=False)
-        torch.nn.init.kaiming_normal_(base_model.conv1.weight,
-                                      mode='fan_out',
-                                      nonlinearity='relu')
-        base_model.fc = torch.nn.Linear(base_model.fc.in_features, num_classes)
-        self.base_model = base_model
+        self.base_model = resnet18(num_classes=num_classes,
+                                   num_filters=num_filters)
         self.spectrogram = Spectrogram(image_size=image_size)
 
     def forward(self, x):

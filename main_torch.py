@@ -23,6 +23,8 @@ def get_parser():
     parser.add_argument(
         '--num-epochs', type=int, default=80, help='total epochs to train')
     parser.add_argument(
+        '--num-filters', type=int, default=64, help='number of base filters in model')
+    parser.add_argument(
         '--log-dir',
         default="logs/",
         help='folder to store model-definition/training-logs/hyperparameters')
@@ -92,11 +94,11 @@ if __name__ == "__main__":
     dataloaders = {x: torch.utils.data.DataLoader(numpy_datasets[x],
                                                   batch_size=arg.batch_size,
                                                   shuffle=True,
-                                                  num_workers=16) \
+                                                  num_workers=10) \
                    for x in ['train', 'val']}
 
     writer = SummaryWriter(log_dir=arg.log_dir)
-    model = Model(num_classes=arg.num_classes)
+    model = Model(num_classes=arg.num_classes, num_filters=arg.num_filters)
     criterion = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=arg.base_lr)
     lr_scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer,

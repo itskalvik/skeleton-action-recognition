@@ -1,9 +1,14 @@
 ## Directory Structure
 - `main_torch.py`: Main python script you will run to train model and for hyperparameter search
-- `model/resnet.py`: DNN model definition
-- `data_gen/`: how raw datasets are processed into numpy tensors
+                   Use this script to change model, optimizer and other general hyperparameters
 
-## Medical Conditions (12) (subract 1 from ID when processing)
+- `model/resnet.py`: DNN model definition, The model uses a custom layer to generate spectrograms
+                     and passes it on to a standard resnet 18 model.
+
+- `data_gen/`: These scripts are used to convert NTU dataset from their native format to numpy tensors
+               For now you only need to use gen_joint_data.py. 
+               
+### Medical Conditions (12) (subract 1 from ID when processing)
 - A41: sneeze/cough	
 - A42: staggering	
 - A43: falling down	

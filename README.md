@@ -3,7 +3,7 @@
 - `model/resnet.py`: DNN model definition
 - `data_gen/`: how raw datasets are processed into numpy tensors
 
-## Medical Conditions (12)
+## Medical Conditions (12) (subract 1 from ID when processing)
 - A41: sneeze/cough	
 - A42: staggering	
 - A43: falling down	

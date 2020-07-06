@@ -2,6 +2,11 @@ from graph.ntu_rgb_d import Graph
 import tensorflow as tf
 import numpy as np
 
+"""
+This script contains random methods and modifications of other methods.
+Some methods might not work!!
+"""
+
 REGULARIZER = tf.keras.regularizers.l2(l=0.0001)
 INITIALIZER = tf.keras.initializers.VarianceScaling(scale=2.,
                                                     mode="fan_out",

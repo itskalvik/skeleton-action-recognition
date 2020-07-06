@@ -8,7 +8,6 @@ import numpy as np
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix
-
 from scipy.ndimage import gaussian_filter1d
 from scipy.interpolate import interp1d
 from pathlib import Path
@@ -17,7 +16,21 @@ import torch
 
 
 class Dataset(torch.utils.data.Dataset):
-    def __init__(self, data_path, label_path,
+    """
+    pytorch Dataset object to fetch and serve data samples from NTU Dataset.
+    The method also increaces data frame rate with interpolation.
+
+    Args:
+        data_path: str, path to npy file containing the NTU Dataset
+        label_path: str, path to pickle file containing NTU Dataset labels
+        num_pad_frames: int, number of interpolated frames to insert between
+            consecutive real frames in each data sample
+        sigma: int, sigma of gaussian filter used to smooth the data before
+            interpolating extra frames
+    """
+    def __init__(self,
+                 data_path,
+                 label_path,
                  num_pad_frames=250,
                  sigma=3):
         self.sigma = sigma

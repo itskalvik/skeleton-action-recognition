@@ -1,14 +1,12 @@
 import torch
 import torchvision
 from torch.utils.tensorboard import SummaryWriter
-
 from tqdm import tqdm
 import numpy as np
 import argparse
 import inspect
 import shutil
 import os
-
 from utils import *
 
 def get_parser():
@@ -65,7 +63,7 @@ def get_parser():
 if __name__ == "__main__":
     parser = get_parser()
     arg = parser.parse_args()
-    arg.model_type = 'model.'+arg.model_type.strip()+'.Model'
+    arg.model_type = 'models.'+arg.model_type.strip()+'.Model'
 
     run_params = dict(vars(arg))
     del run_params['data_path']

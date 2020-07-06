@@ -227,7 +227,7 @@ if __name__ == "__main__":
     global_batch_size  = arg.batch_size*strategy.num_replicas_in_sync
     arg.gpus           = strategy.num_replicas_in_sync
     freeze_graph_until = arg.freeze_graph_until
-    model_type         = 'model.'+arg.model
+    model_type         = 'models.'+arg.model
 
     run_params      = dict(vars(arg))
     del run_params['train_data_path']

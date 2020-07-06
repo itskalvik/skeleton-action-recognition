@@ -1,19 +1,17 @@
 import torch
 import numpy as np
 from nnAudio.Spectrogram import STFT
-
 """
 Defines default edges of the graph data, here the edges correspond to the
 NTU RGB+D dataset's skeleton structure. Some vertices and edges with minimal
 impact to spectrograms were removed.
 http://rose1.ntu.edu.sg/Datasets/actionRecognition.asp
 """
-edges = [(0, 1), (1, 20), (20, 2), (2, 3),
-        (20, 4), (4, 5), (5, 6), (6, 7),
-        (7, 21), (7, 22), (20, 8), (8, 9),
-        (9, 10), (10, 11), (11, 23), (11, 24),
-        (0, 16), (0, 12), (12, 13), (13, 14),
-        (14, 15), (16, 17), (17, 18), (18, 19)]
+edges = [(0, 1), (1, 20), (20, 2), (2, 3), (20, 4), (4, 5), (5, 6), (6, 7),
+         (7, 21), (7, 22), (20, 8), (8, 9), (9, 10), (10, 11), (11, 23),
+         (11, 24), (0, 16), (0, 12), (12, 13), (13, 14), (14, 15), (16, 17),
+         (17, 18), (18, 19)]
+
 
 class VirtualRadar(torch.nn.Module):
     """pytorch layer that generates radar returns from graph data. Each edge is
@@ -35,11 +33,10 @@ class VirtualRadar(torch.nn.Module):
       b_real, b_imag = stft(b)
       stft(s) = (a_real-b_imag) + (a_imag+b_real)j
     """
-
     def __init__(self,
                  edges=edges,
                  wavelength=1e-3,
-                 radar_location=[0.,0.,0.],
+                 radar_location=[0., 0., 0.],
                  train_wavelength=False,
                  train_radar_location=False,
                  train_stft_kernel=False,
@@ -67,8 +64,9 @@ class VirtualRadar(torch.nn.Module):
         super().__init__()
         self.wavelength = torch.nn.Parameter(torch.as_tensor(wavelength),
                                              requires_grad=train_wavelength)
-        self.radar_location = torch.nn.Parameter(torch.as_tensor(radar_location),
-                                                 requires_grad=train_radar_location)
+        self.radar_location = torch.nn.Parameter(
+            torch.as_tensor(radar_location),
+            requires_grad=train_radar_location)
         self.src, self.dst = map(list, zip(*edges))
         self.stft = STFT(n_fft=n_fft,
                          freq_bins=n_fft,
@@ -95,19 +93,21 @@ class VirtualRadar(torch.nn.Module):
         source_joints = x[:, :, :, self.src]
         destination_joints = x[:, :, :, self.dst]
 
-        radar_ellipsoid_vector = torch.abs(source_joints-
-                                    self.radar_location[:, None, None, None])
+        radar_ellipsoid_vector = torch.abs(source_joints -
+                                           self.radar_location[:, None, None,
+                                                               None])
         distances = torch.norm(radar_ellipsoid_vector, dim=1)
 
         A = self.radar_location[:, None, None, None]-\
                 ((source_joints+destination_joints)/2)
-        B = destination_joints-source_joints
+        B = destination_joints - source_joints
         theta = torch.acos(torch.sum(A*B, dim=1) /\
                         ((torch.norm(A, dim=1) * torch.norm(B, dim=1))+1e-6))
-        phi = torch.asin((self.radar_location[1]-source_joints[:, 1])/
-                        (torch.norm(radar_ellipsoid_vector[:, :2], dim=1)+1e-6))
+        phi = torch.asin(
+            (self.radar_location[1] - source_joints[:, 1]) /
+            (torch.norm(radar_ellipsoid_vector[:, :2], dim=1) + 1e-6))
 
-        c = torch.mean(torch.norm(source_joints-destination_joints, dim=1),
+        c = torch.mean(torch.norm(source_joints - destination_joints, dim=1),
                        dim=2,
                        keepdim=True)
         c = torch.pow(c, 2)
@@ -116,19 +116,19 @@ class VirtualRadar(torch.nn.Module):
                        c*(torch.cos(theta)**2))**2
 
         amp = torch.sqrt(rcs)
-        theta = 4*np.pi*distances/self.wavelength
+        theta = 4 * np.pi * distances / self.wavelength
 
-        phase_data = torch.stack((amp*torch.cos(theta),
-                                  amp*torch.sin(theta)),
-                                 dim=4)
+        phase_data = torch.stack(
+            (amp * torch.cos(theta), amp * torch.sin(theta)), dim=4)
         phase_data = torch.sum(phase_data, dim=[2, 3])
         stft_phase_real = self.stft(phase_data[..., 0])
         stft_phase_imag = self.stft(phase_data[..., 1])
-        phase_data = torch.stack((stft_phase_real[..., 0] - stft_phase_imag[..., 1],
-                                  stft_phase_real[..., 1] + stft_phase_imag[..., 0]),
-                                 dim=-1)
+        phase_data = torch.stack(
+            (stft_phase_real[..., 0] - stft_phase_imag[..., 1],
+             stft_phase_real[..., 1] + stft_phase_imag[..., 0]),
+            dim=-1)
 
         phase_data = torch.norm(phase_data, dim=-1)
-        phase_data = torch.log(phase_data+1e-6)
-        phase_data = torch.roll(phase_data, self.n_fft//2, dims=1)
+        phase_data = torch.log(phase_data + 1e-6)
+        phase_data = torch.roll(phase_data, self.n_fft // 2, dims=1)
         return phase_data

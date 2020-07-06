@@ -2,11 +2,8 @@ import tensorflow as tf
 import numpy as np
 
 REGULARIZER = tf.keras.regularizers.l2(l=0.0001)
-INITIALIZER = tf.keras.initializers.VarianceScaling(scale=2.,
-                                                    mode="fan_out",
-                                                    distribution="truncated_normal")
-
-
+INITIALIZER = tf.keras.initializers.VarianceScaling(
+    scale=2., mode="fan_out", distribution="truncated_normal")
 """Graph Conv for graph data https://arxiv.org/pdf/1609.02907.pdf
     Args:
         filters (int): Number of channels produced by the convolution
@@ -20,6 +17,8 @@ INITIALIZER = tf.keras.initializers.VarianceScaling(scale=2.,
             K is the spatial kernel size
             V is the number of graph nodes.
 """
+
+
 class GraphConv(tf.keras.layers.Layer):
     def __init__(self, filters, einsum='ncv,nvw->ncw'):
         super().__init__()
@@ -50,25 +49,32 @@ class GraphConv(tf.keras.layers.Layer):
             K is the spatial kernel size
             V is the number of graph nodes.
 """
+
+
 class GraphIsoConv(tf.keras.layers.Layer):
-    def __init__(self, filters, activation='relu', return_logits=False,
+    def __init__(self,
+                 filters,
+                 activation='relu',
+                 return_logits=False,
                  einsum='ncv,nvw->ncw'):
         super().__init__()
         self.einsum = einsum
         self.mlp = tf.keras.Sequential()
         for filter in filters[:-1]:
-            self.mlp.add(tf.keras.layers.Conv1D(filter,
-                                                kernel_size=1,
-                                                kernel_initializer=INITIALIZER,
-                                                kernel_regularizer=REGULARIZER,
-                                                data_format='channels_first'))
+            self.mlp.add(
+                tf.keras.layers.Conv1D(filter,
+                                       kernel_size=1,
+                                       kernel_initializer=INITIALIZER,
+                                       kernel_regularizer=REGULARIZER,
+                                       data_format='channels_first'))
             self.mlp.add(tf.keras.layers.BatchNormalization(axis=1))
             self.mlp.add(tf.keras.layers.Activation(activation))
-        self.mlp.add(tf.keras.layers.Conv1D(filters[-1],
-                                            kernel_size=1,
-                                            kernel_initializer=INITIALIZER,
-                                            kernel_regularizer=REGULARIZER,
-                                            data_format='channels_first'))
+        self.mlp.add(
+            tf.keras.layers.Conv1D(filters[-1],
+                                   kernel_size=1,
+                                   kernel_initializer=INITIALIZER,
+                                   kernel_regularizer=REGULARIZER,
+                                   data_format='channels_first'))
         if not return_logits:
             self.mlp.add(tf.keras.layers.BatchNormalization(axis=1))
             self.mlp.add(tf.keras.layers.Activation(activation))
@@ -101,9 +107,15 @@ class GraphIsoConv(tf.keras.layers.Layer):
             K is the spatial kernel size
             V is the number of graph nodes.
 """
+
+
 class GraphIsoConvTD(tf.keras.layers.Layer):
-    def __init__(self, filters, kernel_size=3, activation='relu',
-                 return_logits=False, einsum='nctv,kvw->nkctw'):
+    def __init__(self,
+                 filters,
+                 kernel_size=3,
+                 activation='relu',
+                 return_logits=False,
+                 einsum='nctv,kvw->nkctw'):
         super().__init__()
         assert isinstance(filters, list)
         self.kernel_size = kernel_size
@@ -112,18 +124,20 @@ class GraphIsoConvTD(tf.keras.layers.Layer):
         for k in range(kernel_size):
             self.mlps.append(tf.keras.Sequential())
             for filter in filters[:-1]:
-                self.mlps[-1].add(tf.keras.layers.Conv2D(filter,
-                                                         kernel_size=1,
-                                                         kernel_initializer=INITIALIZER,
-                                                         kernel_regularizer=REGULARIZER,
-                                                         data_format='channels_first'))
+                self.mlps[-1].add(
+                    tf.keras.layers.Conv2D(filter,
+                                           kernel_size=1,
+                                           kernel_initializer=INITIALIZER,
+                                           kernel_regularizer=REGULARIZER,
+                                           data_format='channels_first'))
                 self.mlps[-1].add(tf.keras.layers.BatchNormalization(axis=1))
                 self.mlps[-1].add(tf.keras.layers.Activation(activation))
-            self.mlps[-1].add(tf.keras.layers.Conv2D(filters[-1],
-                                                     kernel_size=1,
-                                                     kernel_initializer=INITIALIZER,
-                                                     kernel_regularizer=REGULARIZER,
-                                                     data_format='channels_first'))
+            self.mlps[-1].add(
+                tf.keras.layers.Conv2D(filters[-1],
+                                       kernel_size=1,
+                                       kernel_initializer=INITIALIZER,
+                                       kernel_regularizer=REGULARIZER,
+                                       data_format='channels_first'))
             if not return_logits:
                 self.mlps[-1].add(tf.keras.layers.BatchNormalization(axis=1))
                 self.mlps[-1].add(tf.keras.layers.Activation(activation))
@@ -132,7 +146,6 @@ class GraphIsoConvTD(tf.keras.layers.Layer):
                                    dtype=tf.float32,
                                    trainable=True,
                                    name='epsilon')
-
 
     # x - (N, C, T, V)
     # A - (k-1, V, V) no self connections and binary adj matrix
@@ -169,12 +182,14 @@ class GraphIsoConvTD(tf.keras.layers.Layer):
             T_{in}/T_{out} is a length of input/output sequence,
             V is the number of graph nodes.
 """
+
+
 class GraphConvTD(tf.keras.layers.Layer):
     def __init__(self, filters, kernel_size=3, einsum='nkctv,kvw->nctw'):
         super().__init__()
         self.kernel_size = kernel_size
         self.einsum = einsum
-        self.conv = tf.keras.layers.Conv2D(filters*self.kernel_size,
+        self.conv = tf.keras.layers.Conv2D(filters * self.kernel_size,
                                            kernel_size=1,
                                            kernel_initializer=INITIALIZER,
                                            kernel_regularizer=REGULARIZER,
@@ -189,7 +204,7 @@ class GraphConvTD(tf.keras.layers.Layer):
         T = tf.shape(x)[2]
         V = tf.shape(x)[3]
 
-        x = tf.reshape(x, [N, self.kernel_size, C//self.kernel_size, T, V])
+        x = tf.reshape(x, [N, self.kernel_size, C // self.kernel_size, T, V])
         x = tf.einsum(self.einsum, x, A)
         return x, A
 
@@ -203,7 +218,7 @@ class AdjGraphConv(tf.keras.layers.Layer):
         self.kernel_size = int(tf.shape(self.A)[-3])
         self.einsum = einsum
 
-        self.conv = tf.keras.layers.Conv2D(filters*self.kernel_size,
+        self.conv = tf.keras.layers.Conv2D(filters * self.kernel_size,
                                            kernel_size=1,
                                            kernel_initializer=INITIALIZER,
                                            kernel_regularizer=REGULARIZER,
@@ -218,6 +233,6 @@ class AdjGraphConv(tf.keras.layers.Layer):
         T = tf.shape(x)[2]
         V = tf.shape(x)[3]
 
-        x = tf.reshape(x, [N, self.kernel_size, C//self.kernel_size, T, V])
+        x = tf.reshape(x, [N, self.kernel_size, C // self.kernel_size, T, V])
         x = tf.einsum(self.einsum, x, self.A)
         return x

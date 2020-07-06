@@ -14,17 +14,17 @@ def normalize_digraph(A):  # 除以每列的和
     Dn = np.zeros((w, w))
     for i in range(w):
         if Dl[i] > 0:
-            Dn[i, i] = Dl[i] ** (-1)
+            Dn[i, i] = Dl[i]**(-1)
     AD = np.dot(A, Dn)
     return AD
 
 
 def get_spatial_graph(num_node, self_link, inward, outward, normalize=True):
-    I   = edge2mat(self_link, num_node)
-    In  = edge2mat(inward, num_node)
+    I = edge2mat(self_link, num_node)
+    In = edge2mat(inward, num_node)
     Out = edge2mat(outward, num_node)
     if normalize:
-        In  = normalize_digraph(In)
+        In = normalize_digraph(In)
         Out = normalize_digraph(Out)
     A = np.stack((I, In, Out))
     return A

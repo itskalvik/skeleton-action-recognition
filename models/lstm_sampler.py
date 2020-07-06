@@ -4,8 +4,8 @@ class TemporalSampler(tf.keras.Model):
         self.top_k = top_k
         self.lstm_model = tf.keras.models.Sequential()
         for units in num_hidden:
-            self.lstm_model.add(tf.keras.layers.LSTM(units,
-                                                     return_sequences=True))
+            self.lstm_model.add(
+                tf.keras.layers.LSTM(units, return_sequences=True))
         self.lstm_model.add(tf.keras.layers.LSTM(1, return_sequences=True))
 
     def call(self, x, training):
@@ -15,7 +15,7 @@ class TemporalSampler(tf.keras.Model):
         V = tf.shape(x)[3]
 
         x = tf.transpose(x, [0, 2, 3, 1])
-        x_lstm = tf.reshape(x, [-1, T, V*C])
+        x_lstm = tf.reshape(x, [-1, T, V * C])
         confidence_scores = self.lstm_model(x_lstm, training=training)
         confidence_scores = tf.squeeze(confidence_scores)
         values, indices = tf.math.top_k(confidence_scores,

@@ -4,9 +4,8 @@ import tensorflow as tf
 import numpy as np
 
 REGULARIZER = tf.keras.regularizers.l2(l=0.0001)
-INITIALIZER = tf.keras.initializers.VarianceScaling(scale=2.,
-                                                    mode="fan_out",
-                                                    distribution="truncated_normal")
+INITIALIZER = tf.keras.initializers.VarianceScaling(
+    scale=2., mode="fan_out", distribution="truncated_normal")
 
 
 class ProjectionGraphPool(tf.keras.layers.Layer):
@@ -15,10 +14,10 @@ class ProjectionGraphPool(tf.keras.layers.Layer):
         self.vertices = vertices
 
     def build(self, input_shape):
-        self.centers  = self.add_weight("centers",
-                                        shape=[1, int(input_shape[1]), 1, self.vertices])
-        self.variance = self.add_weight("variance",
-                                        shape=[1, int(input_shape[1]), 1, self.vertices])
+        self.centers = self.add_weight(
+            "centers", shape=[1, int(input_shape[1]), 1, self.vertices])
+        self.variance = self.add_weight(
+            "variance", shape=[1, int(input_shape[1]), 1, self.vertices])
 
     def call(self, x, A, training):
         N = tf.shape(x)[0]
@@ -26,12 +25,12 @@ class ProjectionGraphPool(tf.keras.layers.Layer):
 
         x = tf.reshape(x, [N, C, -1, 1])
 
-        z = (x-self.centers)/tf.sigmoid(self.variance)
+        z = (x - self.centers) / tf.sigmoid(self.variance)
 
-        q = tf.maximum(tf.reduce_sum(tf.square(z), axis=1), 1e-12)*(-1/2)
+        q = tf.maximum(tf.reduce_sum(tf.square(z), axis=1), 1e-12) * (-1 / 2)
         q = tf.nn.softmax(q, axis=-1)
 
-        z = tf.reduce_sum(tf.expand_dims(q, axis=1)*z, axis=-2)
+        z = tf.reduce_sum(tf.expand_dims(q, axis=1) * z, axis=-2)
         z /= tf.reduce_sum(q, axis=-2, keepdims=True)
         z = tf.math.l2_normalize(z, axis=-1)
 
@@ -47,27 +46,34 @@ class ProjectionGraphPool(tf.keras.layers.Layer):
         activation (activation function/name, optional): activation function to use
         residual (bool, optional): If ``True``, applies a residual mechanism. Default: ``True``
 """
+
+
 class SpatioTemporalGraphConv(tf.keras.layers.Layer):
-    def __init__(self, filters, kernel_size=[3, 9], stride=1, activation='relu',
+    def __init__(self,
+                 filters,
+                 kernel_size=[3, 9],
+                 stride=1,
+                 activation='relu',
                  residual=True):
         super().__init__()
-        self.filters     = filters
-        self.stride      = stride
-        self.activation  = activation
-        self.residual    = residual
+        self.filters = filters
+        self.stride = stride
+        self.activation = activation
+        self.residual = residual
 
         self.sgcn = GraphConvTD(filters, kernel_size=kernel_size[0])
 
         self.tgcn = tf.keras.Sequential()
         self.tgcn.add(tf.keras.layers.BatchNormalization(axis=1))
         self.tgcn.add(tf.keras.layers.Activation(self.activation))
-        self.tgcn.add(tf.keras.layers.Conv2D(self.filters,
-                                             kernel_size=[kernel_size[1], 1],
-                                             strides=[self.stride, 1],
-                                             padding='same',
-                                             kernel_initializer=INITIALIZER,
-                                             kernel_regularizer=REGULARIZER,
-                                             data_format='channels_first'))
+        self.tgcn.add(
+            tf.keras.layers.Conv2D(self.filters,
+                                   kernel_size=[kernel_size[1], 1],
+                                   strides=[self.stride, 1],
+                                   padding='same',
+                                   kernel_initializer=INITIALIZER,
+                                   kernel_regularizer=REGULARIZER,
+                                   data_format='channels_first'))
         self.tgcn.add(tf.keras.layers.BatchNormalization(axis=1))
 
         self.act = tf.keras.layers.Activation(self.activation)
@@ -75,17 +81,18 @@ class SpatioTemporalGraphConv(tf.keras.layers.Layer):
     def build(self, input_shape):
         if not self.residual:
             self.residual = lambda x, training=False: 0
-        elif (input_shape[1]==self.filters) and (self.stride == 1):
+        elif (input_shape[1] == self.filters) and (self.stride == 1):
             self.residual = lambda x, training=False: x
         else:
             self.residual = tf.keras.Sequential()
-            self.residual.add(tf.keras.layers.Conv2D(self.filters,
-                                                     kernel_size=[1, 1],
-                                                     strides=[self.stride, 1],
-                                                     padding='same',
-                                                     kernel_initializer=INITIALIZER,
-                                                     kernel_regularizer=REGULARIZER,
-                                                     data_format='channels_first'))
+            self.residual.add(
+                tf.keras.layers.Conv2D(self.filters,
+                                       kernel_size=[1, 1],
+                                       strides=[self.stride, 1],
+                                       padding='same',
+                                       kernel_initializer=INITIALIZER,
+                                       kernel_regularizer=REGULARIZER,
+                                       data_format='channels_first'))
             self.residual.add(tf.keras.layers.BatchNormalization(axis=1))
 
     def call(self, x, A, training):
@@ -108,6 +115,8 @@ class SpatioTemporalGraphConv(tf.keras.layers.Layer):
             :math:`V_{in}` is the number of graph nodes,
             :math:`M_{in}` is the number of instance in a frame.
 """
+
+
 class Model(tf.keras.Model):
     def __init__(self, num_classes=60):
         super().__init__()
@@ -134,7 +143,8 @@ class Model(tf.keras.Model):
         self.STGCN_layers.append(ProjectionGraphPool(256))
         self.STGCN_layers.append(GraphConv(512))
 
-        self.pool = tf.keras.layers.GlobalAveragePooling1D(data_format='channels_first')
+        self.pool = tf.keras.layers.GlobalAveragePooling1D(
+            data_format='channels_first')
         self.logits = tf.keras.layers.Conv2D(num_classes,
                                              kernel_size=1,
                                              padding='same',

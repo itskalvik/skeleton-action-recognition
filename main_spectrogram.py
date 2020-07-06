@@ -9,61 +9,63 @@ import shutil
 import os
 from utils import *
 
+
 def get_parser():
     parser = argparse.ArgumentParser(
         description='Skeleton-Based Action Recognition')
-    parser.add_argument(
-        '--base-lr', type=float, default=1e-1, help='initial learning rate')
-    parser.add_argument(
-        '--num-classes', type=int, default=60, help='number of classes in dataset')
-    parser.add_argument(
-        '--batch-size', type=int, default=64, help='training batch size')
-    parser.add_argument(
-        '--num-epochs', type=int, default=80, help='total epochs to train')
-    parser.add_argument(
-        '--num-filters', type=int, default=64, help='number of base filters in model')
+    parser.add_argument('--base-lr',
+                        type=float,
+                        default=1e-1,
+                        help='initial learning rate')
+    parser.add_argument('--num-classes',
+                        type=int,
+                        default=60,
+                        help='number of classes in dataset')
+    parser.add_argument('--batch-size',
+                        type=int,
+                        default=64,
+                        help='training batch size')
+    parser.add_argument('--num-epochs',
+                        type=int,
+                        default=80,
+                        help='total epochs to train')
+    parser.add_argument('--num-filters',
+                        type=int,
+                        default=64,
+                        help='number of base filters in model')
     parser.add_argument(
         '--log-dir',
         default="logs/",
         help='folder to store model-definition/training-logs/hyperparameters')
-    parser.add_argument(
-        '--data-path',
-        default="data/ntu/xview/{}_data_joint.npy",
-        help='path to data files')
-    parser.add_argument(
-        '--label-path',
-        default="data/ntu/xview/{}_label.pkl",
-        help='path to label files')
-    parser.add_argument(
-        '--notes',
-        default="",
-        help='run details')
-    parser.add_argument(
-        '--model-type',
-        default="resnet",
-        help='model to train')
-    parser.add_argument(
-        '--lr_cycle',
-        type=int,
-        default=10,
-        help='number of epochs for the cyclic LR cycle')
-    parser.add_argument(
-        '--lambda-train-epoch',
-        type=int,
-        default=1000,
-        help='epoch to training the radar_lambda')
-    parser.add_argument(
-        '--loc-train-epoch',
-        type=int,
-        default=1000,
-        help='epoch to training the radar_loc')
+    parser.add_argument('--data-path',
+                        default="data/ntu/xview/{}_data_joint.npy",
+                        help='path to data files')
+    parser.add_argument('--label-path',
+                        default="data/ntu/xview/{}_label.pkl",
+                        help='path to label files')
+    parser.add_argument('--notes', default="", help='run details')
+    parser.add_argument('--model-type',
+                        default="resnet",
+                        help='model to train')
+    parser.add_argument('--lr_cycle',
+                        type=int,
+                        default=10,
+                        help='number of epochs for the cyclic LR cycle')
+    parser.add_argument('--lambda-train-epoch',
+                        type=int,
+                        default=1000,
+                        help='epoch to training the radar_lambda')
+    parser.add_argument('--loc-train-epoch',
+                        type=int,
+                        default=1000,
+                        help='epoch to training the radar_loc')
     return parser
 
 
 if __name__ == "__main__":
     parser = get_parser()
     arg = parser.parse_args()
-    arg.model_type = 'models.'+arg.model_type.strip()+'.Model'
+    arg.model_type = 'models.' + arg.model_type.strip() + '.Model'
 
     run_params = dict(vars(arg))
     del run_params['data_path']
@@ -75,10 +77,13 @@ if __name__ == "__main__":
         del run_params['loc_train_epoch']
     sorted(run_params)
 
-    run_params   = str(run_params).replace(" ", "").replace("'", "").replace(",", "-")[1:-1]
+    run_params = str(run_params).replace(" ",
+                                         "").replace("'",
+                                                     "").replace(",",
+                                                                 "-")[1:-1]
     if len(arg.notes) > 0:
         run_params += "-" + arg.notes
-    arg.log_dir  = os.path.join(arg.log_dir, run_params)
+    arg.log_dir = os.path.join(arg.log_dir, run_params)
 
     #copy hyperparameters and model definition to log folder
     save_arg(arg)
@@ -117,7 +122,7 @@ if __name__ == "__main__":
 
     #start training
     for epoch in range(arg.num_epochs):
-        print('Epoch {}/{}'.format(epoch+1, arg.num_epochs))
+        print('Epoch {}/{}'.format(epoch + 1, arg.num_epochs))
         print('-' * 10)
 
         if epoch > arg.lambda_train_epoch:
@@ -155,30 +160,30 @@ if __name__ == "__main__":
                         val_preds.extend(preds.data.cpu().numpy())
 
                 running_loss += loss.item()
-                running_corrects += torch.sum(preds==labels.data)
+                running_corrects += torch.sum(preds == labels.data)
                 writer.add_scalar('{}_cross_entropy_loss'.format(phase),
                                   loss.item(),
-                                  epoch*len(dataloaders[phase])+i)
-                writer.add_scalar('{}_acc'.format(phase),
-                                  torch.sum(preds==labels.data).double()/inputs.size(0),
-                                  epoch*len(dataloaders[phase])+i)
+                                  epoch * len(dataloaders[phase]) + i)
+                writer.add_scalar(
+                    '{}_acc'.format(phase),
+                    torch.sum(preds == labels.data).double() / inputs.size(0),
+                    epoch * len(dataloaders[phase]) + i)
 
-            if phase=='val':
-                conf_mat = get_confusion_matrix(dataloaders[phase].dataset.labels,
-                                                val_preds)
+            if phase == 'val':
+                conf_mat = get_confusion_matrix(
+                    dataloaders[phase].dataset.labels, val_preds)
                 writer.add_image('confusion_matrix',
                                  conf_mat,
                                  epoch,
                                  dataformats='HWC')
                 writer.close()
 
-            epoch_loss = running_loss/len(dataloaders[phase])
-            epoch_acc = running_corrects.double()/len(dataloaders[phase].dataset)
+            epoch_loss = running_loss / len(dataloaders[phase])
+            epoch_acc = running_corrects.double() / len(
+                dataloaders[phase].dataset)
             writer.add_scalar('{}_epoch_cross_entropy_loss'.format(phase),
-                              epoch_loss,
-                              epoch)
-            writer.add_scalar('{}_epoch_acc'.format(phase),
-                              epoch_acc,
-                              epoch)
-            print('{} Loss: {:.4f} Acc: {:.4f}'.format(phase, epoch_loss, epoch_acc))
+                              epoch_loss, epoch)
+            writer.add_scalar('{}_epoch_acc'.format(phase), epoch_acc, epoch)
+            print('{} Loss: {:.4f} Acc: {:.4f}'.format(phase, epoch_loss,
+                                                       epoch_acc))
         lr_scheduler.step()

@@ -28,11 +28,7 @@ class Dataset(torch.utils.data.Dataset):
         sigma: int, sigma of gaussian filter used to smooth the data before
             interpolating extra frames
     """
-    def __init__(self,
-                 data_path,
-                 label_path,
-                 num_pad_frames=250,
-                 sigma=3):
+    def __init__(self, data_path, label_path, num_pad_frames=250, sigma=3):
         self.sigma = sigma
         self.num_pad_frames = num_pad_frames
 
@@ -47,9 +43,7 @@ class Dataset(torch.utils.data.Dataset):
         with open(label_path, 'rb') as f:
             _, labels = pickle.load(f, encoding='latin1')
 
-        self.data = np.load(data_path,
-                            allow_pickle=True,
-                            mmap_mode='r')
+        self.data = np.load(data_path, allow_pickle=True, mmap_mode='r')
         self.labels = np.array(labels)
 
         self.T = self.data.shape[-3]
@@ -68,7 +62,7 @@ class Dataset(torch.utils.data.Dataset):
                      gaussian_filter1d(data, self.sigma, axis=-3),
                      'cubic',
                      axis=-3)
-        data = f(np.linspace(0, 1, self.num_pad_frames*self.T))
+        data = f(np.linspace(0, 1, self.num_pad_frames * self.T))
         return data
 
 
@@ -81,42 +75,43 @@ def import_class(name):
 
 
 def get_confusion_matrix(y_true, y_pred):
-  """
+    """
   Returns a matplotlib figure containing the plotted confusion matrix.
   Args:
     cm (array, shape = [n, n]): a confusion matrix of integer classes
     class_names (array, shape = [n]): String names of the integer classes
   """
-  cm = confusion_matrix(y_true, y_pred)
+    cm = confusion_matrix(y_true, y_pred)
 
-  figure = plt.figure(figsize=(25, 25))
-  plt.imshow(cm, interpolation='nearest', cmap=plt.cm.Oranges)
-  plt.title("Confusion matrix")
-  tick_marks = np.arange(60)
-  plt.xticks(tick_marks, tick_marks)
-  plt.yticks(tick_marks, tick_marks)
+    figure = plt.figure(figsize=(25, 25))
+    plt.imshow(cm, interpolation='nearest', cmap=plt.cm.Oranges)
+    plt.title("Confusion matrix")
+    tick_marks = np.arange(60)
+    plt.xticks(tick_marks, tick_marks)
+    plt.yticks(tick_marks, tick_marks)
 
-  # Normalize the confusion matrix.
-  cm = np.around(cm.astype('float') / cm.sum(axis=1)[:, np.newaxis], decimals=2)
+    # Normalize the confusion matrix.
+    cm = np.around(cm.astype('float') / cm.sum(axis=1)[:, np.newaxis],
+                   decimals=2)
 
-  # Use white text if squares are dark; otherwise black.
-  threshold = cm.max() / 2.
-  for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
-    color = "white" if cm[i, j] > threshold else "black"
-    plt.text(j, i, cm[i, j], horizontalalignment="center", color=color)
+    # Use white text if squares are dark; otherwise black.
+    threshold = cm.max() / 2.
+    for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
+        color = "white" if cm[i, j] > threshold else "black"
+        plt.text(j, i, cm[i, j], horizontalalignment="center", color=color)
 
-  plt.tight_layout()
-  plt.ylabel('True label')
-  plt.xlabel('Predicted label')
+    plt.tight_layout()
+    plt.ylabel('True label')
+    plt.xlabel('Predicted label')
 
-  buf = io.BytesIO()
-  plt.savefig(buf, format='png')
-  plt.close(figure)
-  buf.seek(0)
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png')
+    plt.close(figure)
+    buf.seek(0)
 
-  image = PIL.Image.open(buf)
-  image = np.asarray(image)
-  return image
+    image = PIL.Image.open(buf)
+    image = np.asarray(image)
+    return image
 
 
 def save_arg(arg):

@@ -39,7 +39,8 @@ def read_skeleton_filter(file):
                 ]
                 body_info = {
                     k: float(v)
-                    for k, v in zip(body_info_key, f.readline().split())
+                    for k, v in zip(body_info_key,
+                                    f.readline().split())
                 }
                 body_info['numJoint'] = int(f.readline())
                 body_info['jointInfo'] = []
@@ -51,7 +52,8 @@ def read_skeleton_filter(file):
                     ]
                     joint_info = {
                         k: float(v)
-                        for k, v in zip(joint_info_key, f.readline().split())
+                        for k, v in zip(joint_info_key,
+                                        f.readline().split())
                     }
                     body_info['jointInfo'].append(joint_info)
                 frame_info['bodyInfo'].append(body_info)
@@ -64,7 +66,8 @@ def get_nonzero_std(s):  # tvc
     index = s.sum(-1).sum(-1) != 0  # select valid frames
     s = s[index]
     if len(s) != 0:
-        s = s[:, :, 0].std() + s[:, :, 1].std() + s[:, :, 2].std()  # three channels
+        s = s[:, :, 0].std() + s[:, :, 1].std() + s[:, :,
+                                                    2].std()  # three channels
     else:
         s = 0
     return s
@@ -90,7 +93,11 @@ def read_xyz(file, max_body=4, num_joint=25):  # 取了前两个body
     return data
 
 
-def gendata(data_path, out_path, ignored_sample_path=None, benchmark='xview', part='eval'):
+def gendata(data_path,
+            out_path,
+            ignored_sample_path=None,
+            benchmark='xview',
+            part='eval'):
     if ignored_sample_path != None:
         with open(ignored_sample_path, 'r') as f:
             ignored_samples = [
@@ -103,12 +110,12 @@ def gendata(data_path, out_path, ignored_sample_path=None, benchmark='xview', pa
     for filename in os.listdir(data_path):
         if filename in ignored_samples:
             continue
-        action_class = int(
-            filename[filename.find('A') + 1:filename.find('A') + 4])
-        subject_id = int(
-            filename[filename.find('P') + 1:filename.find('P') + 4])
-        camera_id = int(
-            filename[filename.find('C') + 1:filename.find('C') + 4])
+        action_class = int(filename[filename.find('A') + 1:filename.find('A') +
+                                    4])
+        subject_id = int(filename[filename.find('P') + 1:filename.find('P') +
+                                  4])
+        camera_id = int(filename[filename.find('C') + 1:filename.find('C') +
+                                 4])
 
         if benchmark == 'xview':
             istraining = (camera_id in training_cameras)
@@ -131,10 +138,13 @@ def gendata(data_path, out_path, ignored_sample_path=None, benchmark='xview', pa
     with open('{}/{}_label.pkl'.format(out_path, part), 'wb') as f:
         pickle.dump((sample_name, list(sample_label)), f)
 
-    fp = np.zeros((len(sample_label), 3, max_frame, num_joint, max_body_true), dtype=np.float32)
+    fp = np.zeros((len(sample_label), 3, max_frame, num_joint, max_body_true),
+                  dtype=np.float32)
 
     for i, s in enumerate(tqdm(sample_name)):
-        data = read_xyz(os.path.join(data_path, s), max_body=max_body_kinect, num_joint=num_joint)
+        data = read_xyz(os.path.join(data_path, s),
+                        max_body=max_body_kinect,
+                        num_joint=num_joint)
         fp[i, :, 0:data.shape[1], :, :] = data
 
     fp = pre_normalization(fp)
@@ -143,9 +153,11 @@ def gendata(data_path, out_path, ignored_sample_path=None, benchmark='xview', pa
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='NTU-RGB-D Data Converter.')
-    parser.add_argument('--data_path', default='../data/nturgbd_raw/nturgb+d_skeletons/')
-    parser.add_argument('--ignored_sample_path',
-                        default='../data/nturgbd_raw/samples_with_missing_skeletons.txt')
+    parser.add_argument('--data_path',
+                        default='../data/nturgbd_raw/nturgb+d_skeletons/')
+    parser.add_argument(
+        '--ignored_sample_path',
+        default='../data/nturgbd_raw/samples_with_missing_skeletons.txt')
     parser.add_argument('--out_folder', default='../data/ntu/')
 
     benchmark = ['xview']
@@ -158,9 +170,8 @@ if __name__ == '__main__':
             if not os.path.exists(out_path):
                 os.makedirs(out_path)
             print(b, p)
-            gendata(
-                arg.data_path,
-                out_path,
-                arg.ignored_sample_path,
-                benchmark=b,
-                part=p)
+            gendata(arg.data_path,
+                    out_path,
+                    arg.ignored_sample_path,
+                    benchmark=b,
+                    part=p)

@@ -1,18 +1,14 @@
 from graph.ntu_rgb_d import Graph
 import tensorflow as tf
 import numpy as np
-
 """
 This script contains random methods and modifications of other methods.
 Some methods might not work!!
 """
 
 REGULARIZER = tf.keras.regularizers.l2(l=0.0001)
-INITIALIZER = tf.keras.initializers.VarianceScaling(scale=2.,
-                                                    mode="fan_out",
-                                                    distribution="truncated_normal")
-
-
+INITIALIZER = tf.keras.initializers.VarianceScaling(
+    scale=2., mode="fan_out", distribution="truncated_normal")
 """The basic module for applying graph pooling operation.
     Args:
         k (float): Pooling ratio
@@ -28,6 +24,8 @@ INITIALIZER = tf.keras.initializers.VarianceScaling(scale=2.,
             :math:`V_{in}/V_{out}` is the number of graph nodes
             :math:`C` is the number of incoming channels
 """
+
+
 class GPool(tf.keras.layers.Layer):
     def __init__(self, keeprate):
         super().__init__()
@@ -35,7 +33,7 @@ class GPool(tf.keras.layers.Layer):
 
     def build(self, input_shape):
         self.p = self.add_weight(name="projection_vector",
-                                 shape=[input_shape[1]*input_shape[2], 1],
+                                 shape=[input_shape[1] * input_shape[2], 1],
                                  trainable=True)
 
     def call(self, x, A, training=False):
@@ -43,7 +41,7 @@ class GPool(tf.keras.layers.Layer):
         C = tf.shape(x)[1]
         T = tf.shape(x)[2]
         V = tf.shape(x)[3]
-        x = tf.reshape(x, [N, C*T, V])
+        x = tf.reshape(x, [N, C * T, V])
         x = tf.transpose(x, perm=[0, 2, 1])
 
         # project onto p
@@ -51,7 +49,8 @@ class GPool(tf.keras.layers.Layer):
 
         #rank the projections
         indices = tf.argsort(y, axis=-2, direction='DESCENDING')
-        indices = indices[:, :int(self.k*tf.cast(tf.shape(A)[-1], tf.float32))]
+        indices = indices[:, :int(self.k *
+                                  tf.cast(tf.shape(A)[-1], tf.float32))]
 
         # get y at indices and apply sigmoid
         y_hat = tf.math.sigmoid(tf.gather_nd(y, indices, batch_dims=1))
@@ -62,7 +61,7 @@ class GPool(tf.keras.layers.Layer):
 
         # get indices rows and cols
         indices = tf.squeeze(indices, axis=-1)
-        A = tf.matmul(A, A) # 2nd graph power
+        A = tf.matmul(A, A)  # 2nd graph power
         A = tf.transpose(A, perm=[0, 2, 3, 1])
         A = tf.gather(A, indices, batch_dims=1)
         A = tf.gather(A, indices, axis=-2, batch_dims=1)
@@ -89,11 +88,13 @@ class GPool(tf.keras.layers.Layer):
             :math:`V` is the number of graph nodes
             :math:`C` is the number of incoming channels
 """
+
+
 class SGCN(tf.keras.Model):
     def __init__(self, filters, kernel_size=3):
         super().__init__()
         self.kernel_size = kernel_size
-        self.conv = tf.keras.layers.Conv2D(filters*kernel_size,
+        self.conv = tf.keras.layers.Conv2D(filters * kernel_size,
                                            kernel_size=1,
                                            padding='same',
                                            kernel_initializer=INITIALIZER,
@@ -109,7 +110,7 @@ class SGCN(tf.keras.Model):
         T = tf.shape(x)[2]
         V = tf.shape(x)[3]
 
-        x = tf.reshape(x, [N, self.kernel_size, C//self.kernel_size, T, V])
+        x = tf.reshape(x, [N, self.kernel_size, C // self.kernel_size, T, V])
         x = tf.einsum('nkctv,nkvw->nctw', x, A)
         return x, A
 
@@ -118,14 +119,15 @@ class SGTACN(tf.keras.Model):
     def __init__(self, filters, adjacency_matrix, temporal_dim, kernel_size=3):
         super().__init__()
         self.kernel_size = kernel_size
-        self.conv = tf.keras.layers.Conv2D(filters*kernel_size,
+        self.conv = tf.keras.layers.Conv2D(filters * kernel_size,
                                            kernel_size=1,
                                            padding='same',
                                            kernel_initializer=INITIALIZER,
                                            data_format='channels_first',
                                            kernel_regularizer=REGULARIZER)
 
-        self.A = tf.Variable(initial_value=tf.ones((1, temporal_dim, 1, 1))*tf.expand_dims(adjacency_matrix, axis=1),
+        self.A = tf.Variable(initial_value=tf.ones((1, temporal_dim, 1, 1)) *
+                             tf.expand_dims(adjacency_matrix, axis=1),
                              trainable=True,
                              name='adjacency_matrix')
 
@@ -138,7 +140,7 @@ class SGTACN(tf.keras.Model):
         T = tf.shape(x)[2]
         V = tf.shape(x)[3]
 
-        x = tf.reshape(x, [N, self.kernel_size, C//self.kernel_size, T, V])
+        x = tf.reshape(x, [N, self.kernel_size, C // self.kernel_size, T, V])
         x = tf.einsum('nkctv,ktvw->nctw', x, self.A)
         return x
 
@@ -163,21 +165,34 @@ class SGTACN(tf.keras.Model):
             :math:`T_{in}/T_{out}` is a length of input/output sequence,
             :math:`V` is the number of graph nodes.
 """
+
+
 class STGCN(tf.keras.Model):
-    def __init__(self, filters, adjacency_matrix, temporal_dim, kernel_size=[9, 3],
-                 stride=1, activation='relu', residual=True, downsample=False):
+    def __init__(self,
+                 filters,
+                 adjacency_matrix,
+                 temporal_dim,
+                 kernel_size=[9, 3],
+                 stride=1,
+                 activation='relu',
+                 residual=True,
+                 downsample=False):
         super().__init__()
-        self.sgcn = SGTACN(filters, adjacency_matrix, temporal_dim, kernel_size=kernel_size[1])
+        self.sgcn = SGTACN(filters,
+                           adjacency_matrix,
+                           temporal_dim,
+                           kernel_size=kernel_size[1])
         self.tgcn = tf.keras.Sequential()
         self.tgcn.add(tf.keras.layers.BatchNormalization(axis=1))
         self.tgcn.add(tf.keras.layers.Activation(activation))
-        self.tgcn.add(tf.keras.layers.Conv2D(filters,
-                                                kernel_size=[kernel_size[0], 1],
-                                                strides=[stride, 1],
-                                                padding='same',
-                                                kernel_initializer=INITIALIZER,
-                                                data_format='channels_first',
-                                                kernel_regularizer=REGULARIZER))
+        self.tgcn.add(
+            tf.keras.layers.Conv2D(filters,
+                                   kernel_size=[kernel_size[0], 1],
+                                   strides=[stride, 1],
+                                   padding='same',
+                                   kernel_initializer=INITIALIZER,
+                                   data_format='channels_first',
+                                   kernel_regularizer=REGULARIZER))
         self.tgcn.add(tf.keras.layers.BatchNormalization(axis=1))
 
         self.act = tf.keras.layers.Activation(activation)
@@ -188,13 +203,14 @@ class STGCN(tf.keras.Model):
             self.residual = lambda x, training=False: x
         else:
             self.residual = tf.keras.Sequential()
-            self.residual.add(tf.keras.layers.Conv2D(filters,
-                                                        kernel_size=[1, 1],
-                                                        strides=[stride, 1],
-                                                        padding='same',
-                                                        kernel_initializer=INITIALIZER,
-                                                        data_format='channels_first',
-                                                        kernel_regularizer=REGULARIZER))
+            self.residual.add(
+                tf.keras.layers.Conv2D(filters,
+                                       kernel_size=[1, 1],
+                                       strides=[stride, 1],
+                                       padding='same',
+                                       kernel_initializer=INITIALIZER,
+                                       data_format='channels_first',
+                                       kernel_regularizer=REGULARIZER))
             self.residual.add(tf.keras.layers.BatchNormalization(axis=1))
 
     def call(self, x, training):
@@ -217,6 +233,8 @@ class STGCN(tf.keras.Model):
             :math:`V_{in}` is the number of graph nodes,
             :math:`M_{in}` is the number of instance in a frame.
 """
+
+
 class Model(tf.keras.Model):
     def __init__(self, num_classes=60):
         super().__init__()
@@ -227,10 +245,10 @@ class Model(tf.keras.Model):
         self.data_bn = tf.keras.layers.BatchNormalization(axis=1)
 
         self.STGCN_layers = []
-        self.STGCN_layers.append(STGCN(64,  A, 300, residual=False))
-        self.STGCN_layers.append(STGCN(64,  A, 300))
-        self.STGCN_layers.append(STGCN(64,  A, 300))
-        self.STGCN_layers.append(STGCN(64,  A, 300))
+        self.STGCN_layers.append(STGCN(64, A, 300, residual=False))
+        self.STGCN_layers.append(STGCN(64, A, 300))
+        self.STGCN_layers.append(STGCN(64, A, 300))
+        self.STGCN_layers.append(STGCN(64, A, 300))
         self.STGCN_layers.append(STGCN(128, A, 300, stride=2, downsample=True))
         self.STGCN_layers.append(STGCN(128, A, 150))
         self.STGCN_layers.append(STGCN(128, A, 150))
@@ -238,7 +256,8 @@ class Model(tf.keras.Model):
         self.STGCN_layers.append(STGCN(256, A, 75))
         self.STGCN_layers.append(STGCN(256, A, 75))
 
-        self.pool = tf.keras.layers.GlobalAveragePooling2D(data_format='channels_first')
+        self.pool = tf.keras.layers.GlobalAveragePooling2D(
+            data_format='channels_first')
 
         self.logits = tf.keras.layers.Conv2D(num_classes,
                                              kernel_size=1,

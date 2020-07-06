@@ -29,7 +29,10 @@ class Graph:
         if labeling_mode == 'spatial':
             A = tools.get_spatial_graph(num_node, self_link, inward, outward)
         elif labeling_mode == 'GIN':
-            A = tools.get_spatial_graph(num_node, self_link, inward, outward,
+            A = tools.get_spatial_graph(num_node,
+                                        self_link,
+                                        inward,
+                                        outward,
                                         normalize=False)
             A = A[1:]
         else:

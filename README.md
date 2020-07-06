@@ -35,11 +35,16 @@ radar method to convert graph data in the NTU dataset into spectrograms (images)
 ## NTU RGB+D dataset
 
 The [NTU RGB+D dataset](https://www.cv-foundation.org/openaccess/content_cvpr_2016/papers/Shahroudy_NTU_RGBD_A_CVPR_2016_paper.pdf) can be downloaded from [here](http://rose1.ntu.edu.sg/Datasets/actionRecognition.asp).
-We'll only need the Skeleton data (~ 5.8G).
+We'll only need the Skeleton data (~ 5.8G). 
+
+The dataset is very noisey, consider adding methods clean it. 
+Checkout [VideoPose3D](https://github.com/kdkalvik/VideoPose3D), might be able to use video data from NTU dataset 
+to generate skeleton data and combine it with skeleton data from NTU dataset which uses depth data to get skeletons.
 
 ## References
 
 - Parts of the code is based on the following repos
   - [mmskeleton](https://github.com/open-mmlab/mmskeleton)
-  - [2s-AGCN](https://github.com/lshiwjx/2s-AGCN)
   - [ST-GCN](https://github.com/kdkalvik/ST-GCN)
+  - [2s-AGCN](https://github.com/kdkalvik/2s-AGCN)
+  - [DGNN-Tensorflow](https://github.com/kdkalvik/DGNN-Tensorflow)

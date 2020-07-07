@@ -1,6 +1,7 @@
 # NTU RGB+D Dataset Action Recognition with GNNs and CNNs
 graph neural networks(tensorflow) and spatial convolutional neural
-networks(pytorch). The spatial convolutional neural networks use a novel virtual
+networks(pytorch) for action recognition from NTU RGB+D skeletion dataset. 
+The spatial convolutional neural networks use a novel virtual
 radar method to convert graph data in the NTU dataset into spectrograms (images).
 
 ## Directory Structure

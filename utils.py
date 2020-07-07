@@ -1,18 +1,92 @@
-import os
-import io
-import PIL
-import yaml
-import itertools
-import matplotlib
-import numpy as np
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-from sklearn.metrics import confusion_matrix
-from scipy.ndimage import gaussian_filter1d
-from scipy.interpolate import interp1d
+from data_gen.gen_joint_data import *
 from pathlib import Path
+from scipy.interpolate import interp1d
+from scipy.ndimage import gaussian_filter1d
+from sklearn.metrics import confusion_matrix
+import io
+import itertools
+import json
+import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import os
 import pickle
+import PIL
 import torch
+import yaml
+matplotlib.use('Agg')
+
+
+'''
+Extract joint data from Microsoft Azure Kinect pose data
+Args:
+    filename: str, file name of json data
+Returns:
+    data: numpy array; shape-(num_frames, num_joints, 3), joint position data
+    edges: list of tuples, tuple shape-(3), source joint, dest joint,
+                                            dia of part (modeled as ellipsoid)
+'''
+def preprocess_azure_kinect(filename):
+    # define edges of the skeleton graph
+    edges = [(1, 0), (2, 1), (3, 2), (4, 2),
+             (5, 4), (6, 5), (7, 6), (8, 7),
+             (9, 8), (10, 7), (11, 2), (12, 11),
+             (13, 12), (14, 13), (15, 14), (16, 15),
+             (17, 14), (18, 0), (19, 18), (20, 19),
+             (21, 20), (22, 0), (23, 22),
+             (24, 23), (25, 24), (26, 3)]
+
+    # read json file
+    with open(filename) as f:
+        json_file = json.load(f)
+
+    # gather joint positions and timestamps of all joints
+    data = []
+    for frame in json_file['frames']:
+        if frame['num_bodies'] > 0:
+            data.append(frame['bodies'][0]['joint_positions'])
+    data = np.array(data)
+    data = data * 0.001 # convert data from meters to 
+    return data, edges
+
+'''
+Extract joint data from NTU pose data
+Args:
+    filename: str, file name of json data
+Returns:
+    data: numpy array; shape-(num_frames, num_joints, 3), joint position data
+    edges: list of tuples, tuple shape-(3), source joint, dest joint,
+                                            dia of part (modeled as ellipsoid)
+'''
+def preprocess_ntu(filename):
+    edges = [(0, 1), (1, 20), (20, 2), (2, 3), (20, 4), (4, 5), (5, 6), (6, 7),
+            (7, 21), (7, 22), (20, 8), (8, 9), (9, 10), (10, 11), (11, 23),
+            (11, 24), (0, 16), (0, 12), (12, 13), (13, 14), (14, 15), (16, 17),
+            (17, 18), (18, 19)]
+
+    data = read_xyz(filename, max_body_kinect, num_joint)
+    data = np.transpose(data, (3, 1, 2, 0))
+    return data, edges
+
+
+'''
+Smooths data with a gaussian window and upsamples data frame rate with cubic
+interpolation
+Args:
+    data: numpy array; shape-(num_frames, num_joints, 3), joint data
+    num_pad_frames: int, number of interpolated frames to insert between real frames
+    sigma: int, sigma value for gaussian smoothing
+Returns:
+    data: numpy array; shape-(num_frames, num_joints, 3), padded data
+'''
+def pad_frames(data, num_pad_frames=1, sigma=3):
+  T, V, C = data.shape
+  f = interp1d(np.linspace(0, 1, T),
+              gaussian_filter1d(data, sigma, axis=1),
+              'cubic',
+              axis=-3)
+  data = f(np.linspace(0, 1, num_pad_frames * T))
+  return data
 
 
 class Dataset(torch.utils.data.Dataset):

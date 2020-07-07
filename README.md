@@ -31,7 +31,10 @@ radar method to convert graph data in the NTU dataset into spectrograms (images)
                          convolutional neural networks. Since the NTU data is
                          natively represented as graphs, it is converted to
                          spectrogram(images) with the custom VirtualRadar layer.
-
+- `virtual_radar_example.ipynb`: Jupyter notebook with an example of VirtualRadar 
+                                 layer applied to skeleton data from
+                                 Microsoft Kinect Azure camera.
+     
 ## NTU RGB+D dataset
 
 The [NTU RGB+D dataset](https://www.cv-foundation.org/openaccess/content_cvpr_2016/papers/Shahroudy_NTU_RGBD_A_CVPR_2016_paper.pdf) can be downloaded from [here](http://rose1.ntu.edu.sg/Datasets/actionRecognition.asp).
